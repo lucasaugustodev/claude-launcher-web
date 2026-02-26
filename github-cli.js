@@ -56,6 +56,8 @@ function install(onProgress) {
     }
 
     // Detect package manager and build install command
+    // Uses sudo for package installation (service may run as non-root user)
+    const SUDO = process.getuid && process.getuid() !== 0 ? 'sudo' : '';
     const script = `
 set -e
 echo ">>> Detectando gerenciador de pacotes..."
@@ -67,23 +69,23 @@ if command -v apt-get &>/dev/null; then
   # Add GitHub CLI repository
   if ! command -v gh &>/dev/null; then
     echo ">>> Adicionando repositorio GitHub CLI..."
-    (type -p wget >/dev/null || (apt-get update && apt-get install wget -y))
-    mkdir -p -m 755 /etc/apt/keyrings
-    wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
-    chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+    (type -p wget >/dev/null || (${SUDO} apt-get update && ${SUDO} apt-get install wget -y))
+    ${SUDO} mkdir -p -m 755 /etc/apt/keyrings
+    wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | ${SUDO} tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
+    ${SUDO} chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | ${SUDO} tee /etc/apt/sources.list.d/github-cli.list > /dev/null
     echo ">>> Instalando gh CLI..."
-    apt-get update
-    apt-get install gh -y
+    ${SUDO} apt-get update
+    ${SUDO} apt-get install gh -y
   fi
 
 elif command -v dnf &>/dev/null; then
   echo ">>> Usando dnf (Fedora/RHEL)..."
-  dnf install -y gh
+  ${SUDO} dnf install -y gh
 
 elif command -v yum &>/dev/null; then
   echo ">>> Usando yum (CentOS)..."
-  yum install -y gh
+  ${SUDO} yum install -y gh
 
 else
   echo ">>> ERRO: Gerenciador de pacotes nao suportado"
