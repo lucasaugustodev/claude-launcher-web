@@ -118,8 +118,19 @@ function hasUsers() {
   return getUsers().length > 0;
 }
 
+// ─── GitHub Config ───
+
+function getGitHubConfig() {
+  return readJSON('github-config.json', null);
+}
+
+function saveGitHubConfig(config) {
+  writeJSON('github-config.json', config);
+}
+
 module.exports = {
   getProfiles, saveProfiles, getProfile, addProfile, updateProfile, deleteProfile,
   getSessions, saveSessions, getSession, addSession, updateSession, clearHistory,
   getUsers, saveUsers, findUser, addUser, hasUsers,
+  getGitHubConfig, saveGitHubConfig,
 };

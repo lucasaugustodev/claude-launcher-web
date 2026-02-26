@@ -5,6 +5,7 @@ const { WebSocketServer } = require('ws');
 const path = require('path');
 const storage = require('./storage');
 const ptyManager = require('./pty-manager');
+const githubSync = require('./github-sync');
 
 const PORT = process.env.PORT || 3001;
 
@@ -141,6 +142,7 @@ app.post('/api/auth/logout', (req, res) => {
 // ─── Protected routes below ───
 app.use('/api/profiles', checkToken);
 app.use('/api/sessions', checkToken);
+app.use('/api/github', checkToken);
 
 // ─── Profiles API ───
 
@@ -222,6 +224,105 @@ app.post('/api/sessions/:id/resume', (req, res) => {
 
 app.delete('/api/sessions/history', (req, res) => {
   storage.clearHistory();
+  res.json({ ok: true });
+});
+
+// ─── GitHub Sync API ───
+
+app.get('/api/github/status', (req, res) => {
+  const config = githubSync.getConfig();
+  if (!config || !config.installationId) {
+    return res.json({ connected: false, enabled: false });
+  }
+  res.json({
+    connected: true,
+    enabled: !!config.enabled,
+    owner: config.owner,
+    repo: config.repo,
+  });
+});
+
+app.post('/api/github/detect', async (req, res) => {
+  try {
+    const installations = await githubSync.listInstallations();
+    res.json({ installations });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/github/connect', async (req, res) => {
+  const { installationId, owner, accountType } = req.body;
+  if (!installationId || !owner) {
+    return res.status(400).json({ error: 'installationId and owner required' });
+  }
+
+  try {
+    const token = await githubSync.getInstallationToken(installationId);
+    const repoName = 'claude-sessions';
+
+    const repoCheck = await githubSync.checkRepo(token, owner, repoName);
+
+    if (!repoCheck.exists) {
+      // For organizations, try to create automatically
+      if (accountType === 'Organization') {
+        try {
+          await githubSync.createOrgRepo(token, owner, repoName);
+          console.log(`[GITHUB] Created repo: ${owner}/${repoName}`);
+        } catch (createErr) {
+          return res.json({
+            ok: false,
+            needsRepo: true,
+            createUrl: `https://github.com/organizations/${owner}/repositories/new?name=${repoName}&visibility=private`,
+            error: createErr.message,
+          });
+        }
+      } else {
+        // User accounts — can't create via API, show link
+        return res.json({
+          ok: false,
+          needsRepo: true,
+          createUrl: `https://github.com/new?name=${repoName}&private=true&description=Claude+sessions+auto-sync`,
+        });
+      }
+    }
+
+    // Repo exists (or just created) — save config and connect
+    githubSync.saveConfig({
+      installationId: String(installationId),
+      owner,
+      repo: repoName,
+      enabled: true,
+    });
+
+    console.log(`[GITHUB] Connected: ${owner}/${repoName}`);
+    res.json({ ok: true, repo: `${owner}/${repoName}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/github/test', async (req, res) => {
+  try {
+    const result = await githubSync.testConnection();
+    res.json(result);
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/github/sync/:id', async (req, res) => {
+  try {
+    const result = await githubSync.syncSession(req.params.id);
+    res.json(result);
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/github/config', (req, res) => {
+  githubSync.saveConfig(null);
+  console.log('[GITHUB] Config deleted');
   res.json({ ok: true });
 });
 

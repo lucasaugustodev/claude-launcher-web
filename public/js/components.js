@@ -412,6 +412,32 @@ async function renderHistoryPage(container) {
       }));
     }
 
+    // GitHub Sync button (for ended sessions)
+    if (s.status !== 'running') {
+      tdActions.appendChild(el('button', {
+        className: 'btn btn-sm',
+        textContent: 'Sync',
+        style: { color: 'var(--text-muted)', fontSize: '12px' },
+        onClick: async (e) => {
+          const btn = e.target;
+          btn.textContent = '...';
+          btn.disabled = true;
+          try {
+            const result = await API.syncSessionToGitHub(s.id);
+            if (result.success) {
+              showToast('Sincronizado com GitHub!');
+            } else {
+              showToast(result.error || 'GitHub nao configurado', 'error');
+            }
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+          btn.textContent = 'Sync';
+          btn.disabled = false;
+        },
+      }));
+    }
+
     tr.appendChild(tdProfile);
     tr.appendChild(tdMode);
     tr.appendChild(tdStatus);
@@ -450,4 +476,217 @@ async function updateActiveCount() {
       badge.style.display = 'none';
     }
   } catch {}
+}
+
+// ─── GitHub Settings Page ───
+
+async function renderGitHubPage(container) {
+  container.innerHTML = '';
+
+  const header = el('div', { className: 'page-title' }, [
+    el('span', { textContent: 'GitHub Sync' }),
+  ]);
+  container.appendChild(header);
+
+  let status;
+  try {
+    status = await API.getGitHubStatus();
+  } catch (err) {
+    container.appendChild(el('div', { className: 'empty-state', innerHTML: `<p>Erro: ${err.message}</p>` }));
+    return;
+  }
+
+  if (status.connected && status.enabled) {
+    renderGitHubConnected(container, status);
+  } else {
+    renderGitHubDisconnected(container);
+  }
+}
+
+function renderGitHubConnected(container, status) {
+  const card = el('div', { className: 'card', style: { maxWidth: '500px' } });
+
+  const statusLine = el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' } }, [
+    el('span', { className: 'status-dot online' }),
+    el('span', { textContent: 'Conectado', style: { color: 'var(--text-secondary)', fontSize: '13px' } }),
+  ]);
+  card.appendChild(statusLine);
+
+  const info = el('div', { style: { marginBottom: '16px' } });
+  info.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <div><strong>Conta:</strong> ${status.owner}</div>
+      <div><strong>Repositorio:</strong> <a href="https://github.com/${status.owner}/${status.repo}" target="_blank" style="color:var(--accent)">${status.owner}/${status.repo}</a></div>
+      <div><strong>Sync:</strong> Automatico (cada sessao finalizada)</div>
+    </div>
+  `;
+  card.appendChild(info);
+
+  const actions = el('div', { style: { display: 'flex', gap: '8px' } });
+
+  actions.appendChild(el('button', {
+    className: 'btn btn-primary',
+    textContent: 'Testar Conexao',
+    onClick: async (e) => {
+      const btn = e.target;
+      btn.textContent = 'Testando...';
+      btn.disabled = true;
+      try {
+        const result = await API.testGitHub();
+        if (result.success) {
+          showToast(`Conexao OK! Repo: ${result.repoName}`);
+        } else {
+          showToast(`Falha: ${result.error}`, 'error');
+        }
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+      btn.textContent = 'Testar Conexao';
+      btn.disabled = false;
+    },
+  }));
+
+  actions.appendChild(el('button', {
+    className: 'btn btn-danger',
+    textContent: 'Desconectar',
+    onClick: async () => {
+      if (!confirm('Desconectar GitHub? Sessoes nao serao mais sincronizadas.')) return;
+      try {
+        await API.disconnectGitHub();
+        showToast('GitHub desconectado');
+        renderGitHubPage(container);
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    },
+  }));
+
+  card.appendChild(actions);
+  container.appendChild(card);
+}
+
+function renderGitHubDisconnected(container) {
+  const card = el('div', { className: 'card', style: { maxWidth: '500px' } });
+
+  const statusLine = el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' } }, [
+    el('span', { className: 'status-dot offline' }),
+    el('span', { textContent: 'Desconectado', style: { color: 'var(--text-secondary)', fontSize: '13px' } }),
+  ]);
+  card.appendChild(statusLine);
+
+  const desc = el('p', {
+    textContent: 'Conecte sua conta GitHub para salvar sessoes automaticamente em um repositorio.',
+    style: { color: 'var(--text-muted)', fontSize: '14px', marginBottom: '20px' },
+  });
+  card.appendChild(desc);
+
+  // Step 1: Install app
+  const step1 = el('div', { style: { marginBottom: '20px' } });
+  step1.innerHTML = `
+    <div style="color:var(--text-secondary);font-weight:600;margin-bottom:8px;">1. Instale o app na sua conta GitHub</div>
+    <a href="https://github.com/apps/ia-hub-project/installations/new" target="_blank" class="btn btn-primary" style="display:inline-flex;text-decoration:none;">
+      Instalar ia-hub-project
+    </a>
+    <div style="color:var(--text-muted);font-size:12px;margin-top:6px;">Abre o GitHub em nova aba. Autorize o app e volte aqui.</div>
+  `;
+  card.appendChild(step1);
+
+  // Step 2: Detect
+  const step2 = el('div', { style: { marginBottom: '8px' } });
+  step2.innerHTML = `
+    <div style="color:var(--text-secondary);font-weight:600;margin-bottom:8px;">2. Detectar instalacao</div>
+  `;
+
+  const detectBtn = el('button', {
+    className: 'btn',
+    textContent: 'Detectar Instalacao',
+    id: 'gh-detect-btn',
+    onClick: async () => {
+      detectBtn.textContent = 'Buscando...';
+      detectBtn.disabled = true;
+      try {
+        const data = await API.detectInstallations();
+        renderInstallationsList(card, data.installations || []);
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+      detectBtn.textContent = 'Detectar Instalacao';
+      detectBtn.disabled = false;
+    },
+  });
+  step2.appendChild(detectBtn);
+  card.appendChild(step2);
+
+  // Installations list placeholder
+  card.appendChild(el('div', { id: 'gh-installations' }));
+
+  container.appendChild(card);
+}
+
+function renderInstallationsList(card, installations) {
+  const listDiv = card.querySelector('#gh-installations');
+  listDiv.innerHTML = '';
+
+  if (installations.length === 0) {
+    listDiv.innerHTML = '<p style="color:var(--text-muted);font-size:13px;margin-top:12px;">Nenhuma instalacao encontrada. Instale o app primeiro.</p>';
+    return;
+  }
+
+  const container = document.getElementById('content');
+
+  for (const inst of installations) {
+    const row = el('div', {
+      style: {
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '10px 12px', marginTop: '8px',
+        background: 'var(--bg-primary)', borderRadius: 'var(--radius)', border: '1px solid var(--border)',
+      },
+    }, [
+      el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } }, [
+        inst.avatarUrl
+          ? el('img', { src: inst.avatarUrl, style: { width: '28px', height: '28px', borderRadius: '50%' } })
+          : el('span', { textContent: inst.account.slice(0, 1).toUpperCase(), style: { width: '28px', height: '28px', borderRadius: '50%', background: 'var(--accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '600' } }),
+        el('div', {}, [
+          el('div', { textContent: inst.account, style: { fontWeight: '500' } }),
+          el('div', { textContent: `ID: ${inst.id}`, style: { fontSize: '12px', color: 'var(--text-muted)' } }),
+        ]),
+      ]),
+      el('button', {
+        className: 'btn btn-success btn-sm',
+        textContent: 'Conectar',
+        onClick: async (e) => {
+          const btn = e.target;
+          btn.textContent = 'Conectando...';
+          btn.disabled = true;
+          try {
+            const result = await API.connectGitHub(inst.id, inst.account, inst.accountType);
+            if (result.ok) {
+              showToast(`Conectado! Repo: ${result.repo}`);
+              renderGitHubPage(container);
+            } else if (result.needsRepo) {
+              // Repo doesn't exist — show create link
+              const row = btn.closest('div[style]');
+              let hint = row.querySelector('.repo-hint');
+              if (!hint) {
+                hint = el('div', { className: 'repo-hint', style: { marginTop: '8px', padding: '10px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)', fontSize: '13px' } });
+                hint.innerHTML = `
+                  <div style="color:var(--warning);margin-bottom:6px;">Repo <b>claude-sessions</b> nao encontrado.</div>
+                  <a href="${result.createUrl}" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none;display:inline-flex;margin-bottom:6px;">Criar repo no GitHub</a>
+                  <div style="color:var(--text-muted);font-size:12px;">Crie o repo e clique "Conectar" novamente.</div>
+                `;
+                row.parentElement.insertBefore(hint, row.nextSibling);
+              }
+            } else {
+              showToast('Falha ao conectar', 'error');
+            }
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+          btn.textContent = 'Conectar';
+          btn.disabled = false;
+        },
+      }),
+    ]);
+    listDiv.appendChild(row);
+  }
 }

@@ -123,6 +123,30 @@ const API = {
     return this.fetch('/api/sessions/history', { method: 'DELETE' });
   },
 
+  // ─── GitHub ───
+
+  getGitHubStatus() { return this.fetch('/api/github/status'); },
+
+  detectInstallations() {
+    return this.fetch('/api/github/detect', { method: 'POST' });
+  },
+
+  connectGitHub(installationId, owner, accountType) {
+    return this.fetch('/api/github/connect', { method: 'POST', body: JSON.stringify({ installationId, owner, accountType }) });
+  },
+
+  testGitHub() {
+    return this.fetch('/api/github/test', { method: 'POST' });
+  },
+
+  syncSessionToGitHub(id) {
+    return this.fetch(`/api/github/sync/${id}`, { method: 'POST' });
+  },
+
+  disconnectGitHub() {
+    return this.fetch('/api/github/config', { method: 'DELETE' });
+  },
+
   // ─── WebSocket ───
 
   connectWS() {

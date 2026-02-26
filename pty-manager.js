@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuid } = require('uuid');
 const storage = require('./storage');
+const githubSync = require('./github-sync');
 
 // Active PTY handles: sessionId -> { pty, output, listeners, startedAt, pid }
 const handles = new Map();
@@ -162,6 +163,11 @@ function spawnSession(sessionId, shellAndArgs, cwd, env) {
       exitCode,
     });
 
+    // GitHub sync (fire-and-forget)
+    githubSync.syncSession(sessionId).catch(err => {
+      console.error(`[GITHUB] Sync failed for ${sessionId}:`, err.message);
+    });
+
     setTimeout(() => handles.delete(sessionId), 5000);
   });
 
@@ -260,6 +266,11 @@ function stopSession(sessionId) {
     status: 'stopped',
     endedAt: new Date().toISOString(),
     durationSeconds: Math.round((Date.now() - new Date(handle.startedAt).getTime()) / 1000),
+  });
+
+  // GitHub sync (fire-and-forget)
+  githubSync.syncSession(sessionId).catch(err => {
+    console.error(`[GITHUB] Sync failed for ${sessionId}:`, err.message);
   });
 
   return true;
