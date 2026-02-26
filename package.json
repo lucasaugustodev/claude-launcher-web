@@ -1,0 +1,16 @@
+{
+  "name": "claude-launcher-web",
+  "version": "1.0.0",
+  "description": "Web-based Claude Code session launcher with terminal access",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-code": "^2.1.59",
+    "express": "^4.21.0",
+    "node-pty": "^1.0.0",
+    "uuid": "^9.0.0",
+    "ws": "^8.18.0"
+  }
+}
