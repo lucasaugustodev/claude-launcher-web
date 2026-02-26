@@ -376,3 +376,34 @@ th {
   #content { padding: 16px; }
   .card-grid { grid-template-columns: 1fr; }
 }
+
+/* ─── GitHub CLI Page ─── */
+.code-block {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-family: 'Cascadia Code', 'Fira Code', 'SF Mono', monospace;
+  font-size: 13px;
+  color: var(--success);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.steps-list {
+  border-left: 2px solid var(--border);
+  padding-left: 4px;
+  margin: 16px 0;
+}
+
+.cli-step + .cli-step {
+  padding-top: 4px;
+}
+
+.copy-block {
+  border: 1px solid var(--border);
+}
+
+.copy-block:hover {
+  border-color: var(--accent);
+}

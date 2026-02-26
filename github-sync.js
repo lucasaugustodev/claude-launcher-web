@@ -149,6 +149,166 @@ async function createOrgRepo(token, org, repoName) {
   throw new Error(`Failed to create repo: ${res.statusCode} ${JSON.stringify(res.body)}`);
 }
 
+// ─── Repo Creation ───
+
+async function createRepo(installationId, owner, repoName, isPrivate = true) {
+  const token = await getInstallationToken(installationId);
+
+  // Try as user repo first (POST /user/repos), then org repo
+  let res = await githubAPI('POST', '/user/repos', token, {
+    name: repoName,
+    description: 'Auto-sync via Claude Launcher',
+    private: isPrivate,
+    auto_init: true,
+  });
+
+  if (res.statusCode === 201) {
+    return { success: true, fullName: res.body.full_name, owner: res.body.owner.login, name: res.body.name };
+  }
+
+  // If user repo fails, try as org repo
+  res = await githubAPI('POST', `/orgs/${owner}/repos`, token, {
+    name: repoName,
+    description: 'Auto-sync via Claude Launcher',
+    private: isPrivate,
+    auto_init: true,
+  });
+
+  if (res.statusCode === 201) {
+    return { success: true, fullName: res.body.full_name, owner: res.body.owner.login, name: res.body.name };
+  }
+
+  throw new Error(`Failed to create repo: ${res.statusCode} ${JSON.stringify(res.body)}`);
+}
+
+// ─── Repo Listing ───
+
+const REPOS_DIR = path.join('C:', 'Users', 'rootlucas', 'repos');
+
+async function listRepos(installationId) {
+  const token = await getInstallationToken(installationId);
+  const repos = [];
+  let page = 1;
+
+  while (page <= 5) { // max 5 pages (500 repos)
+    const res = await githubAPI('GET', `/installation/repositories?per_page=100&page=${page}`, token);
+    if (res.statusCode !== 200) {
+      throw new Error(`Failed to list repos: ${res.statusCode}`);
+    }
+    for (const r of res.body.repositories || []) {
+      repos.push({
+        fullName: r.full_name,
+        name: r.name,
+        owner: r.owner.login,
+        private: r.private,
+        defaultBranch: r.default_branch,
+      });
+    }
+    if ((res.body.repositories || []).length < 100) break;
+    page++;
+  }
+
+  return repos;
+}
+
+// ─── Git Operations (via child_process) ───
+
+const { execSync, execFileSync } = require('child_process');
+
+function ensureReposDir() {
+  if (!fs.existsSync(REPOS_DIR)) fs.mkdirSync(REPOS_DIR, { recursive: true });
+}
+
+function getRepoPath(repoName) {
+  return path.join(REPOS_DIR, repoName);
+}
+
+async function cloneRepo(installationId, owner, repo) {
+  ensureReposDir();
+  const repoPath = getRepoPath(repo);
+
+  if (fs.existsSync(repoPath)) {
+    // Already cloned, just pull
+    return pullRepo(installationId, repoPath, owner, repo);
+  }
+
+  const token = await getInstallationToken(installationId);
+  const url = `https://x-access-token:${token}@github.com/${owner}/${repo}.git`;
+
+  execSync(`git clone "${url}" "${repoPath}"`, {
+    stdio: 'pipe',
+    timeout: 120000,
+  });
+
+  console.log(`[GITHUB] Cloned ${owner}/${repo} to ${repoPath}`);
+  return { success: true, path: repoPath };
+}
+
+async function pullRepo(installationId, repoPath, owner, repo) {
+  await setRemoteToken(repoPath, installationId, owner, repo);
+
+  try {
+    execSync('git pull --ff-only', {
+      cwd: repoPath,
+      stdio: 'pipe',
+      timeout: 60000,
+    });
+  } catch (err) {
+    // Pull may fail if there are local changes; that's ok
+    console.warn(`[GITHUB] Pull warning for ${repo}: ${err.message}`);
+  }
+
+  console.log(`[GITHUB] Pulled ${owner}/${repo}`);
+  return { success: true, path: repoPath };
+}
+
+async function createBranch(repoPath, branchName) {
+  execSync(`git checkout -b "${branchName}"`, {
+    cwd: repoPath,
+    stdio: 'pipe',
+  });
+  console.log(`[GITHUB] Created branch ${branchName}`);
+  return { success: true, branch: branchName };
+}
+
+async function setRemoteToken(repoPath, installationId, owner, repo) {
+  const token = await getInstallationToken(installationId);
+  const url = `https://x-access-token:${token}@github.com/${owner}/${repo}.git`;
+  execSync(`git remote set-url origin "${url}"`, {
+    cwd: repoPath,
+    stdio: 'pipe',
+  });
+}
+
+async function getDefaultBranch(repoPath) {
+  try {
+    const result = execSync('git symbolic-ref refs/remotes/origin/HEAD', {
+      cwd: repoPath,
+      stdio: 'pipe',
+      encoding: 'utf8',
+    }).trim();
+    return result.replace('refs/remotes/origin/', '');
+  } catch {
+    return 'main';
+  }
+}
+
+async function createPullRequest(installationId, owner, repo, head, base, title, body) {
+  const token = await getInstallationToken(installationId);
+  const res = await githubAPI('POST', `/repos/${owner}/${repo}/pulls`, token, {
+    title,
+    head,
+    base,
+    body,
+  });
+
+  if (res.statusCode === 201) {
+    return { success: true, prUrl: res.body.html_url, prNumber: res.body.number };
+  }
+
+  throw new Error(`Failed to create PR: ${res.statusCode} ${JSON.stringify(res.body)}`);
+}
+
 // ─── ANSI Stripping ───
 
 function stripAnsi(text) {
@@ -291,5 +451,9 @@ async function testConnection() {
 module.exports = {
   getConfig, saveConfig, isConfigured,
   listInstallations, getInstallationToken,
-  checkRepo, createOrgRepo, syncSession, testConnection,
+  checkRepo, createOrgRepo, createRepo, syncSession, testConnection,
+  // Git repo operations
+  listRepos, cloneRepo, pullRepo, createBranch,
+  setRemoteToken, getDefaultBranch, createPullRequest,
+  getRepoPath, REPOS_DIR,
 };

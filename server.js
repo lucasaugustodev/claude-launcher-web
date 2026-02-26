@@ -6,6 +6,8 @@ const path = require('path');
 const storage = require('./storage');
 const ptyManager = require('./pty-manager');
 const githubSync = require('./github-sync');
+const gitWatcher = require('./git-watcher');
+const githubCli = require('./github-cli');
 
 const PORT = process.env.PORT || 3001;
 
@@ -143,6 +145,7 @@ app.post('/api/auth/logout', (req, res) => {
 app.use('/api/profiles', checkToken);
 app.use('/api/sessions', checkToken);
 app.use('/api/github', checkToken);
+app.use('/api/github-cli', checkToken);
 
 // ─── Profiles API ───
 
@@ -151,7 +154,7 @@ app.get('/api/profiles', (req, res) => {
 });
 
 app.post('/api/profiles', (req, res) => {
-  const { name, workingDirectory, mode, initialPrompt, nodeMemory } = req.body;
+  const { name, workingDirectory, mode, initialPrompt, nodeMemory, githubRepo, syncStrategy } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
 
   const { v4: uuid } = require('uuid');
@@ -162,6 +165,8 @@ app.post('/api/profiles', (req, res) => {
     mode: mode || 'normal',
     initialPrompt: initialPrompt || '',
     nodeMemory: nodeMemory || null,
+    githubRepo: githubRepo || null,
+    syncStrategy: syncStrategy || 'branch',
     createdAt: new Date().toISOString(),
   };
 
@@ -190,12 +195,12 @@ app.get('/api/sessions/history', (req, res) => {
   res.json(storage.getSessions());
 });
 
-app.post('/api/sessions/launch', (req, res) => {
+app.post('/api/sessions/launch', async (req, res) => {
   const { profileId } = req.body;
   if (!profileId) return res.status(400).json({ error: 'profileId is required' });
 
   try {
-    const session = ptyManager.launchSession(profileId);
+    const session = await ptyManager.launchSession(profileId);
     res.status(201).json(session);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -326,6 +331,104 @@ app.delete('/api/github/config', (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── GitHub Repos API (for profile linking) ───
+
+app.get('/api/github/repos', async (req, res) => {
+  try {
+    const config = githubSync.getConfig();
+    if (!config || !config.installationId) {
+      return res.status(400).json({ error: 'GitHub not connected. Connect first in GitHub settings.' });
+    }
+    const repos = await githubSync.listRepos(config.installationId);
+    res.json({ repos });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/github/create-repo', async (req, res) => {
+  const { name } = req.body;
+  const isPrivate = req.body.private !== false;
+  if (!name) return res.status(400).json({ error: 'name required' });
+
+  try {
+    const config = githubSync.getConfig();
+    if (!config || !config.installationId) {
+      return res.status(400).json({ error: 'GitHub not connected' });
+    }
+    const result = await githubSync.createRepo(config.installationId, config.owner, name, isPrivate);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/github/clone', async (req, res) => {
+  const { owner, repo } = req.body;
+  if (!owner || !repo) {
+    return res.status(400).json({ error: 'owner and repo required' });
+  }
+  try {
+    const config = githubSync.getConfig();
+    if (!config || !config.installationId) {
+      return res.status(400).json({ error: 'GitHub not connected' });
+    }
+    const result = await githubSync.cloneRepo(config.installationId, owner, repo);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/sessions/:id/watcher-status', (req, res) => {
+  const status = gitWatcher.getStatus(req.params.id);
+  res.json(status);
+});
+
+// ─── GitHub CLI API ───
+
+app.get('/api/github-cli/status', async (req, res) => {
+  try {
+    const status = await githubCli.getStatus();
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/github-cli/install', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  try {
+    await githubCli.install((text) => {
+      res.write(`data: ${JSON.stringify({ type: 'progress', text })}\n\n`);
+    });
+    const status = await githubCli.getStatus();
+    res.write(`data: ${JSON.stringify({ type: 'done', ...status })}\n\n`);
+  } catch (err) {
+    res.write(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);
+  }
+  res.end();
+});
+
+app.post('/api/github-cli/clone', async (req, res) => {
+  const { repo, destDir } = req.body;
+  if (!repo) return res.status(400).json({ error: 'repo is required (e.g. owner/repo-name)' });
+
+  const repoName = repo.includes('/') ? repo.split('/').pop() : repo;
+  const dest = destDir || `/opt/${repoName}`;
+
+  try {
+    const result = await githubCli.cloneRepo(repo, dest);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── WebSocket Server ───
 
 const wss = new WebSocketServer({ server, path: '/ws' });
@@ -400,6 +503,20 @@ wss.on('connection', (ws, req) => {
     attachedSessions.clear();
   });
 });
+
+// ─── Broadcast Helper (for watcher events) ───
+
+function broadcastToAll(data) {
+  const msg = typeof data === 'string' ? data : JSON.stringify(data);
+  for (const client of wss.clients) {
+    if (client.readyState === client.OPEN) {
+      try { client.send(msg); } catch {}
+    }
+  }
+}
+
+// Expose broadcast for pty-manager
+ptyManager.setBroadcast(broadcastToAll);
 
 // ─── Startup ───
 

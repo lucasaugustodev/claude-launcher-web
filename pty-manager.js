@@ -4,6 +4,10 @@ const path = require('path');
 const { v4: uuid } = require('uuid');
 const storage = require('./storage');
 const githubSync = require('./github-sync');
+const gitWatcher = require('./git-watcher');
+
+// Broadcast function set by server.js
+let _broadcast = () => {};
 
 // Active PTY handles: sessionId -> { pty, output, listeners, startedAt, pid }
 const handles = new Map();
@@ -163,7 +167,20 @@ function spawnSession(sessionId, shellAndArgs, cwd, env) {
       exitCode,
     });
 
-    // GitHub sync (fire-and-forget)
+    // Stop git watcher (commits final changes + creates PR if branch strategy)
+    gitWatcher.stopWatching(sessionId).then(result => {
+      if (result) {
+        console.log(`[WATCHER] Session ${sessionId}: ${result.commitCount} commits`);
+        if (result.prUrl) {
+          _broadcast({ type: 'watcher-pr', sessionId, prUrl: result.prUrl });
+          storage.updateSession(sessionId, { prUrl: result.prUrl });
+        }
+      }
+    }).catch(err => {
+      console.error(`[WATCHER] Stop failed for ${sessionId}:`, err.message);
+    });
+
+    // GitHub output sync (fire-and-forget)
     githubSync.syncSession(sessionId).catch(err => {
       console.error(`[GITHUB] Sync failed for ${sessionId}:`, err.message);
     });
@@ -176,13 +193,42 @@ function spawnSession(sessionId, shellAndArgs, cwd, env) {
   return handle;
 }
 
-function launchSession(profileId) {
+async function launchSession(profileId) {
   const profile = storage.getProfile(profileId);
   if (!profile) throw new Error('Profile not found');
 
   const sessionId = uuid();
-  const cwd = profile.workingDirectory || process.cwd();
+  let cwd = profile.workingDirectory || process.cwd();
   const env = buildClaudeEnv(profile.nodeMemory);
+
+  // If profile has a linked GitHub repo, clone/pull and use as cwd
+  let watcherBranch = null;
+  if (profile.githubRepo) {
+    const [owner, repo] = profile.githubRepo.split('/');
+    const ghConfig = githubSync.getConfig();
+
+    if (ghConfig && ghConfig.installationId) {
+      try {
+        const result = await githubSync.cloneRepo(ghConfig.installationId, owner, repo);
+        cwd = result.path;
+
+        // For branch strategy, create a new branch
+        if (profile.syncStrategy === 'branch') {
+          watcherBranch = `claude/${sessionId.slice(0, 8)}`;
+          await githubSync.createBranch(cwd, watcherBranch);
+        } else {
+          // For main strategy, use current branch
+          watcherBranch = await githubSync.getDefaultBranch(cwd);
+        }
+
+        console.log(`[SESSION] Repo ready: ${owner}/${repo} (branch: ${watcherBranch})`);
+      } catch (err) {
+        console.error(`[SESSION] Repo setup failed: ${err.message}`);
+        // Continue with original cwd if repo setup fails
+        cwd = profile.workingDirectory || process.cwd();
+      }
+    }
+  }
 
   const flags = [];
   if (profile.mode === 'bypass') flags.push('--dangerously-skip-permissions');
@@ -202,8 +248,27 @@ function launchSession(profileId) {
     exitCode: null,
     status: 'running',
     pid: handle.pid,
+    githubRepo: profile.githubRepo || null,
+    syncStrategy: profile.syncStrategy || null,
+    watcherBranch: watcherBranch,
   };
   storage.addSession(session);
+
+  // Start git watcher if repo is linked
+  if (profile.githubRepo && watcherBranch) {
+    const [owner, repo] = profile.githubRepo.split('/');
+    const ghConfig = githubSync.getConfig();
+
+    gitWatcher.startWatching(sessionId, cwd, watcherBranch, {
+      installationId: ghConfig.installationId,
+      owner,
+      repo,
+      syncStrategy: profile.syncStrategy || 'branch',
+    }, (event) => {
+      // Broadcast watcher events to all WebSocket clients
+      _broadcast({ ...event, sessionId });
+    });
+  }
 
   return session;
 }
@@ -268,7 +333,15 @@ function stopSession(sessionId) {
     durationSeconds: Math.round((Date.now() - new Date(handle.startedAt).getTime()) / 1000),
   });
 
-  // GitHub sync (fire-and-forget)
+  // Stop git watcher
+  gitWatcher.stopWatching(sessionId).then(result => {
+    if (result && result.prUrl) {
+      _broadcast({ type: 'watcher-pr', sessionId, prUrl: result.prUrl });
+      storage.updateSession(sessionId, { prUrl: result.prUrl });
+    }
+  }).catch(() => {});
+
+  // GitHub output sync (fire-and-forget)
   githubSync.syncSession(sessionId).catch(err => {
     console.error(`[GITHUB] Sync failed for ${sessionId}:`, err.message);
   });
@@ -350,8 +423,13 @@ function cleanupOrphaned() {
   return cleaned;
 }
 
+function setBroadcast(fn) {
+  _broadcast = fn;
+}
+
 module.exports = {
   launchSession, resumeSession, stopSession, sendInput, resizePty,
   getActiveSessions, getSessionOutput,
   addListener, removeListener, stopAll, cleanupOrphaned,
+  setBroadcast,
 };

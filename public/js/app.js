@@ -135,6 +135,7 @@
       case 'active': renderActivePage(content); break;
       case 'history': renderHistoryPage(content); break;
       case 'github': renderGitHubPage(content); break;
+      case 'github-cli': renderGitHubCLIPage(content); break;
     }
   }
 
@@ -151,6 +152,8 @@
 
   document.getElementById('terminal-back').onclick = () => {
     TerminalManager.close();
+    updateWatcherIndicator('');
+    _watcherCommitCount = 0;
   };
 
   document.getElementById('terminal-stop').onclick = async () => {
@@ -182,10 +185,47 @@
   API.on('ws:connected', () => updateWSStatus(true));
   API.on('ws:disconnected', () => updateWSStatus(false));
 
+  // ─── Watcher Indicator ───
+
+  let _watcherCommitCount = 0;
+
+  function updateWatcherIndicator(text, color) {
+    const indicator = document.getElementById('watcher-indicator');
+    if (!indicator) return;
+    indicator.style.display = text ? 'inline' : 'none';
+    indicator.textContent = text;
+    if (color) indicator.style.color = color;
+  }
+
+  API.on('watcher:commit', (msg) => {
+    _watcherCommitCount = msg.commitCount || (_watcherCommitCount + 1);
+    updateWatcherIndicator(`Auto-sync: ${_watcherCommitCount} commit(s)`, '#a6e3a1');
+  });
+
+  API.on('watcher:cline-start', () => {
+    updateWatcherIndicator(`Syncing...`, '#f9e2af');
+  });
+
+  API.on('watcher:cline-done', (msg) => {
+    if (msg.success) {
+      updateWatcherIndicator(`Auto-sync: ${_watcherCommitCount} commit(s)`, '#a6e3a1');
+    } else {
+      updateWatcherIndicator(`Sync error`, '#f38ba8');
+    }
+  });
+
+  API.on('watcher:pr', (msg) => {
+    if (msg.prUrl) {
+      showToast(`PR criado: ${msg.prUrl}`);
+      updateWatcherIndicator(`PR aberto`, '#89b4fa');
+    }
+  });
+
   // ─── Init ───
 
   function initApp() {
     API.connectWS();
+    _watcherCommitCount = 0;
     navigate('profiles');
     updateActiveCount();
     setInterval(updateActiveCount, 10000);

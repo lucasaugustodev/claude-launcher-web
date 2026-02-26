@@ -59,6 +59,24 @@ function showProfileModal(profile = null, onSave) {
       <label>Node Memory MB (opcional)</label>
       <input type="number" id="pf-mem" value="${profile?.nodeMemory || ''}" placeholder="Ex: 8192">
     </div>
+    <div class="form-group">
+      <label>GitHub Repo (opcional - auto-versioning)</label>
+      <select id="pf-github-repo">
+        <option value="">Nenhum</option>
+      </select>
+      <div style="margin-top:6px">
+        <a href="https://github.com/new" target="_blank" id="pf-create-repo-link" style="color:var(--accent);font-size:12px;text-decoration:none">+ Criar novo repositorio no GitHub</a>
+        <button class="btn btn-sm" id="pf-refresh-repos" style="margin-left:8px;font-size:11px;padding:2px 8px">Atualizar lista</button>
+      </div>
+      <small style="color:var(--text-muted);display:block;margin-top:4px">Crie o repo no GitHub, depois clique em "Atualizar lista"</small>
+    </div>
+    <div class="form-group" id="pf-strategy-group" style="display:none">
+      <label>Estrategia de Sync</label>
+      <select id="pf-sync-strategy">
+        <option value="branch" ${(!profile || profile.syncStrategy !== 'main') ? 'selected' : ''}>Branch + PR (cria branch e abre PR ao final)</option>
+        <option value="main" ${profile?.syncStrategy === 'main' ? 'selected' : ''}>Commit direto no main</option>
+      </select>
+    </div>
     <div class="modal-actions">
       <button class="btn" id="pf-cancel">Cancelar</button>
       <button class="btn btn-primary" id="pf-save">${isEdit ? 'Salvar' : 'Criar'}</button>
@@ -72,12 +90,17 @@ function showProfileModal(profile = null, onSave) {
   overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
 
   overlay.querySelector('#pf-save').onclick = async () => {
+    const repoSelect = modal.querySelector('#pf-github-repo');
+    const selectedRepo = repoSelect.value;
+
     const data = {
       name: modal.querySelector('#pf-name').value.trim(),
       workingDirectory: modal.querySelector('#pf-cwd').value.trim(),
       mode: modal.querySelector('#pf-mode').value,
       initialPrompt: modal.querySelector('#pf-prompt').value.trim(),
       nodeMemory: parseInt(modal.querySelector('#pf-mem').value) || null,
+      githubRepo: selectedRepo || null,
+      syncStrategy: selectedRepo ? modal.querySelector('#pf-sync-strategy').value : null,
     };
 
     if (!data.name) {
@@ -87,6 +110,48 @@ function showProfileModal(profile = null, onSave) {
 
     overlay.remove();
     if (onSave) onSave(data);
+  };
+
+  // Show/hide strategy based on repo selection
+  const repoSelect = modal.querySelector('#pf-github-repo');
+  const strategyGroup = modal.querySelector('#pf-strategy-group');
+  repoSelect.addEventListener('change', () => {
+    strategyGroup.style.display = repoSelect.value ? 'block' : 'none';
+  });
+
+  // Load GitHub repos into dropdown
+  async function loadRepos() {
+    // Remove all options except "Nenhum"
+    while (repoSelect.options.length > 1) repoSelect.remove(1);
+    try {
+      const { repos } = await API.listGitHubRepos();
+      for (const r of repos) {
+        const opt = document.createElement('option');
+        opt.value = r.fullName;
+        opt.textContent = `${r.fullName}${r.private ? ' (private)' : ''}`;
+        if (profile?.githubRepo === r.fullName) opt.selected = true;
+        repoSelect.appendChild(opt);
+      }
+      if (profile?.githubRepo) {
+        strategyGroup.style.display = 'block';
+      }
+    } catch {
+      // GitHub not connected
+    }
+  }
+
+  loadRepos();
+
+  // Refresh repos button
+  modal.querySelector('#pf-refresh-repos').onclick = async (e) => {
+    e.preventDefault();
+    const btn = e.target;
+    btn.textContent = '...';
+    btn.disabled = true;
+    await loadRepos();
+    btn.textContent = 'Atualizar lista';
+    btn.disabled = false;
+    showToast('Lista atualizada');
   };
 
   // Focus name field
@@ -140,6 +205,7 @@ async function renderProfilesPage(container) {
         <span>Modo: ${p.mode === 'bypass' ? 'Bypass' : 'Normal'}</span>
         <span>Dir: ${p.workingDirectory || '(padrao)'}</span>
         ${p.initialPrompt ? `<span>Prompt: ${p.initialPrompt.substring(0, 50)}...</span>` : ''}
+        ${p.githubRepo ? `<span style="color:var(--success)">Repo: ${p.githubRepo} (${p.syncStrategy === 'main' ? 'commit direto' : 'branch+PR'})</span>` : ''}
       `}),
       el('div', { className: 'card-actions' }, [
         el('button', {
@@ -689,4 +755,242 @@ function renderInstallationsList(card, installations) {
     ]);
     listDiv.appendChild(row);
   }
+}
+
+// ═══════════════════════════════════════════
+// GitHub CLI Page
+// ═══════════════════════════════════════════
+
+async function renderGitHubCLIPage(container) {
+  container.innerHTML = '';
+  container.appendChild(el('h2', { textContent: 'GitHub CLI' }));
+
+  const statusCard = el('div', { className: 'card', innerHTML: '<p style="color:var(--text-muted)">Verificando...</p>' });
+  container.appendChild(statusCard);
+
+  try {
+    const status = await API.getGitHubCLIStatus();
+    renderGitHubCLIStatus(container, statusCard, status);
+  } catch (err) {
+    statusCard.innerHTML = `<p style="color:var(--danger)">Erro ao verificar: ${err.message}</p>`;
+  }
+}
+
+function renderGitHubCLIStatus(container, statusCard, status) {
+  statusCard.innerHTML = '';
+
+  if (!status.installed) {
+    // ─── State 1: Not installed ───
+    statusCard.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' } }, [
+      el('span', { className: 'status-tag status-crashed', textContent: 'Nao instalado' }),
+      el('span', { textContent: 'GitHub CLI nao encontrado neste servidor', style: { color: 'var(--text-muted)', fontSize: '14px' } }),
+    ]));
+
+    statusCard.appendChild(el('p', {
+      textContent: 'O GitHub CLI (gh) permite clonar repositorios privados e autenticar com sua conta GitHub.',
+      style: { fontSize: '14px', marginBottom: '16px' },
+    }));
+
+    const installLog = el('pre', {
+      className: 'code-block',
+      style: { display: 'none', maxHeight: '300px', overflow: 'auto', marginTop: '12px' },
+    });
+
+    const installBtn = el('button', {
+      className: 'btn btn-primary',
+      textContent: 'Instalar GitHub CLI',
+      onClick: async () => {
+        installBtn.disabled = true;
+        installBtn.textContent = 'Instalando...';
+        installLog.style.display = 'block';
+        installLog.textContent = '';
+
+        try {
+          const result = await API.installGitHubCLI((text) => {
+            installLog.textContent += text;
+            installLog.scrollTop = installLog.scrollHeight;
+          });
+          showToast('GitHub CLI instalado!');
+          const newStatus = await API.getGitHubCLIStatus();
+          renderGitHubCLIStatus(container, statusCard, newStatus);
+        } catch (err) {
+          showToast('Falha na instalacao: ' + err.message, 'error');
+          installBtn.textContent = 'Tentar novamente';
+          installBtn.disabled = false;
+        }
+      },
+    });
+
+    statusCard.appendChild(installBtn);
+    statusCard.appendChild(installLog);
+
+  } else if (!status.authenticated) {
+    // ─── State 2: Installed but not authenticated ───
+    statusCard.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' } }, [
+      el('span', { className: 'status-tag status-stopped', textContent: 'Nao autenticado' }),
+      el('span', { textContent: `gh v${status.version} instalado`, style: { color: 'var(--text-muted)', fontSize: '14px' } }),
+    ]));
+
+    statusCard.appendChild(el('p', {
+      textContent: 'O GitHub CLI esta instalado mas voce precisa autenticar. Siga os passos abaixo:',
+      style: { fontSize: '14px', marginBottom: '16px' },
+    }));
+
+    // Step-by-step instructions
+    const steps = el('div', { className: 'steps-list' });
+
+    steps.appendChild(renderCLIStep('1', 'Acesse o terminal da maquina via SSH', el('div', {}, [
+      el('p', { textContent: 'Conecte via SSH ou abra um terminal no servidor:', style: { fontSize: '13px', marginBottom: '8px' } }),
+      renderCopyBlock('ssh root@<IP-DO-SERVIDOR>'),
+    ])));
+
+    steps.appendChild(renderCLIStep('2', 'Execute o comando de autenticacao', el('div', {}, [
+      el('p', { textContent: 'No terminal, execute:', style: { fontSize: '13px', marginBottom: '8px' } }),
+      renderCopyBlock('gh auth login'),
+    ])));
+
+    steps.appendChild(renderCLIStep('3', 'Siga o fluxo interativo', el('div', {}, [
+      el('p', { innerHTML: '&bull; Escolha <b>GitHub.com</b>', style: { fontSize: '13px' } }),
+      el('p', { innerHTML: '&bull; Protocolo: <b>HTTPS</b>', style: { fontSize: '13px' } }),
+      el('p', { innerHTML: '&bull; Autenticar com: <b>Login with a web browser</b> ou <b>Paste an authentication token</b>', style: { fontSize: '13px' } }),
+      el('p', { innerHTML: '&bull; Se usar browser, copie o codigo e abra o link mostrado', style: { fontSize: '13px' } }),
+    ])));
+
+    steps.appendChild(renderCLIStep('4', 'Volte aqui e verifique', el('div', {}, [
+      el('p', { textContent: 'Apos autenticar, clique no botao abaixo:', style: { fontSize: '13px' } }),
+    ])));
+
+    statusCard.appendChild(steps);
+
+    statusCard.appendChild(el('button', {
+      className: 'btn btn-primary',
+      textContent: 'Verificar Autenticacao',
+      style: { marginTop: '12px' },
+      onClick: async () => {
+        try {
+          const newStatus = await API.getGitHubCLIStatus();
+          if (newStatus.authenticated) {
+            showToast('Autenticado com sucesso!');
+          } else {
+            showToast('Ainda nao autenticado. Execute gh auth login no terminal.', 'error');
+          }
+          renderGitHubCLIStatus(container, statusCard, newStatus);
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      },
+    }));
+
+  } else {
+    // ─── State 3: Installed and authenticated ───
+    statusCard.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' } }, [
+      el('span', { className: 'status-tag status-completed', textContent: 'Conectado' }),
+      el('span', { textContent: `gh v${status.version} — @${status.user}`, style: { color: 'var(--text-muted)', fontSize: '14px' } }),
+    ]));
+
+    // Clone repo section
+    const cloneSection = el('div', { style: { marginTop: '8px' } });
+
+    cloneSection.appendChild(el('h3', { textContent: 'Clonar Repositorio', style: { fontSize: '16px', marginBottom: '12px' } }));
+
+    const repoInput = el('input', {
+      type: 'text',
+      placeholder: 'owner/repo (ex: lucasaugustodev/vultr-vm-creator)',
+      style: { marginBottom: '8px' },
+    });
+
+    const destInput = el('input', {
+      type: 'text',
+      placeholder: 'Diretorio destino (default: /opt/repo-name)',
+      style: { marginBottom: '12px' },
+    });
+
+    const cloneResult = el('div', { style: { marginTop: '12px' } });
+
+    const cloneBtn = el('button', {
+      className: 'btn btn-primary',
+      textContent: 'Clonar',
+      onClick: async () => {
+        const repo = repoInput.value.trim();
+        if (!repo) { showToast('Informe o repositorio', 'error'); return; }
+
+        cloneBtn.disabled = true;
+        cloneBtn.textContent = 'Clonando...';
+        cloneResult.innerHTML = '';
+
+        try {
+          const result = await API.cloneWithGitHubCLI(repo, destInput.value.trim() || undefined);
+          showToast(`Repositorio ${result.action === 'pull' ? 'atualizado' : 'clonado'}!`);
+          cloneResult.appendChild(el('div', {
+            className: 'card',
+            style: { background: 'var(--surface1)', marginTop: '8px' },
+          }, [
+            el('p', { innerHTML: `<b>${result.action === 'pull' ? 'Pull' : 'Clone'}</b> concluido`, style: { color: 'var(--success)' } }),
+            el('p', { textContent: `Path: ${result.path}`, style: { fontSize: '13px', color: 'var(--text-muted)' } }),
+          ]));
+        } catch (err) {
+          showToast('Falha: ' + err.message, 'error');
+          cloneResult.appendChild(el('p', { textContent: err.message, style: { color: 'var(--danger)', fontSize: '13px' } }));
+        }
+
+        cloneBtn.textContent = 'Clonar';
+        cloneBtn.disabled = false;
+      },
+    });
+
+    cloneSection.appendChild(el('div', { className: 'form-group' }, [
+      el('label', { textContent: 'Repositorio' }),
+      repoInput,
+    ]));
+    cloneSection.appendChild(el('div', { className: 'form-group' }, [
+      el('label', { textContent: 'Diretorio destino (opcional)' }),
+      destInput,
+    ]));
+    cloneSection.appendChild(cloneBtn);
+    cloneSection.appendChild(cloneResult);
+
+    statusCard.appendChild(cloneSection);
+  }
+}
+
+// Helper: render a step in the CLI setup wizard
+function renderCLIStep(number, title, content) {
+  return el('div', { className: 'cli-step', style: { display: 'flex', gap: '12px', marginBottom: '16px' } }, [
+    el('div', {
+      textContent: number,
+      style: {
+        minWidth: '28px', height: '28px', borderRadius: '50%', background: 'var(--accent)',
+        color: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontWeight: 'bold', fontSize: '14px', flexShrink: '0',
+      },
+    }),
+    el('div', { style: { flex: '1' } }, [
+      el('div', { textContent: title, style: { fontWeight: '600', marginBottom: '6px', fontSize: '14px' } }),
+      content,
+    ]),
+  ]);
+}
+
+// Helper: render a copyable code block
+function renderCopyBlock(text) {
+  const block = el('div', {
+    className: 'copy-block',
+    style: {
+      display: 'flex', alignItems: 'center', gap: '8px',
+      background: 'var(--surface1)', borderRadius: '6px', padding: '8px 12px',
+      fontFamily: 'monospace', fontSize: '13px',
+    },
+  }, [
+    el('code', { textContent: text, style: { flex: '1' } }),
+    el('button', {
+      className: 'btn btn-sm',
+      textContent: 'Copiar',
+      style: { fontSize: '11px', padding: '2px 8px' },
+      onClick: () => {
+        navigator.clipboard.writeText(text);
+        showToast('Copiado!');
+      },
+    }),
+  ]);
+  return block;
 }

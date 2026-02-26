@@ -147,6 +147,63 @@ const API = {
     return this.fetch('/api/github/config', { method: 'DELETE' });
   },
 
+  listGitHubRepos() {
+    return this.fetch('/api/github/repos');
+  },
+
+  cloneGitHubRepo(owner, repo) {
+    return this.fetch('/api/github/clone', { method: 'POST', body: JSON.stringify({ owner, repo }) });
+  },
+
+  createGitHubRepo(name, isPrivate = true) {
+    return this.fetch('/api/github/create-repo', { method: 'POST', body: JSON.stringify({ name, private: isPrivate }) });
+  },
+
+  getWatcherStatus(sessionId) {
+    return this.fetch(`/api/sessions/${sessionId}/watcher-status`);
+  },
+
+  // ─── GitHub CLI ───
+
+  getGitHubCLIStatus() {
+    return this.fetch('/api/github-cli/status');
+  },
+
+  async installGitHubCLI(onProgress) {
+    const headers = {};
+    if (this._token) headers['Authorization'] = 'Bearer ' + this._token;
+
+    const res = await fetch('/api/github-cli/install', { method: 'POST', headers });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let result = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value);
+      const lines = text.split('\n').filter(l => l.startsWith('data: '));
+      for (const line of lines) {
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.type === 'progress' && onProgress) onProgress(data.text);
+          if (data.type === 'done') result = data;
+          if (data.type === 'error') throw new Error(data.message);
+        } catch (e) {
+          if (e.message !== data?.message) { /* ignore parse errors */ }
+        }
+      }
+    }
+    return result;
+  },
+
+  cloneWithGitHubCLI(repo, destDir) {
+    return this.fetch('/api/github-cli/clone', {
+      method: 'POST',
+      body: JSON.stringify({ repo, destDir: destDir || undefined }),
+    });
+  },
+
   // ─── WebSocket ───
 
   connectWS() {
@@ -168,6 +225,10 @@ const API = {
       this._emit('ws:message', msg);
       if (msg.type === 'output') this._emit('terminal:output', msg);
       if (msg.type === 'exit') this._emit('terminal:exit', msg);
+      if (msg.type === 'watcher-commit') this._emit('watcher:commit', msg);
+      if (msg.type === 'watcher-pr') this._emit('watcher:pr', msg);
+      if (msg.type === 'cline-start') this._emit('watcher:cline-start', msg);
+      if (msg.type === 'cline-done') this._emit('watcher:cline-done', msg);
     };
 
     this._ws.onclose = () => {
