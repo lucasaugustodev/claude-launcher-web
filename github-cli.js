@@ -138,9 +138,12 @@ function cloneRepo(repo, destDir) {
       fs.mkdirSync(parentDir, { recursive: true });
     }
 
+    // Use parent dir as cwd to avoid "Unable to read current working directory" errors
+    const execOpts = { timeout: 120000, cwd: parentDir };
+
     // If destDir already exists, pull instead
     if (fs.existsSync(path.join(destDir, '.git'))) {
-      execFile('git', ['-C', destDir, 'pull'], { timeout: 60000 }, (err, stdout, stderr) => {
+      execFile('git', ['-C', destDir, 'pull'], execOpts, (err, stdout, stderr) => {
         if (err) return reject(new Error(`Git pull falhou: ${(stderr || err.message).slice(-300)}`));
         resolve({ success: true, action: 'pull', path: destDir, output: stdout.trim() });
       });
@@ -152,7 +155,7 @@ function cloneRepo(repo, destDir) {
       fs.rmSync(destDir, { recursive: true, force: true });
     }
 
-    execFile('gh', ['repo', 'clone', repo, destDir], { timeout: 120000 }, (err, stdout, stderr) => {
+    execFile('gh', ['repo', 'clone', repo, destDir], execOpts, (err, stdout, stderr) => {
       if (err) return reject(new Error(`Clone falhou: ${(stderr || err.message).slice(-300)}`));
       resolve({ success: true, action: 'clone', path: destDir, output: (stdout || stderr || '').trim() });
     });
