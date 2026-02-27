@@ -458,8 +458,8 @@ async function renderHistoryPage(container) {
       },
     }));
 
-    // Resume button (only for crashed/stopped, not running or completed)
-    if (s.status === 'crashed' || s.status === 'stopped') {
+    // Resume button (for any non-running session)
+    if (s.status !== 'running') {
       tdActions.appendChild(el('button', {
         className: 'btn btn-success btn-sm',
         textContent: 'Retomar',
@@ -474,32 +474,6 @@ async function renderHistoryPage(container) {
           } catch (err) {
             showToast(err.message, 'error');
           }
-        },
-      }));
-    }
-
-    // GitHub Sync button (for ended sessions)
-    if (s.status !== 'running') {
-      tdActions.appendChild(el('button', {
-        className: 'btn btn-sm',
-        textContent: 'Sync',
-        style: { color: 'var(--text-muted)', fontSize: '12px' },
-        onClick: async (e) => {
-          const btn = e.target;
-          btn.textContent = '...';
-          btn.disabled = true;
-          try {
-            const result = await API.syncSessionToGitHub(s.id);
-            if (result.success) {
-              showToast('Sincronizado com GitHub!');
-            } else {
-              showToast(result.error || 'GitHub nao configurado', 'error');
-            }
-          } catch (err) {
-            showToast(err.message, 'error');
-          }
-          btn.textContent = 'Sync';
-          btn.disabled = false;
         },
       }));
     }
@@ -1205,17 +1179,177 @@ function renderGitHubCLIStatus(container, statusCard, status) {
 
     cloneSection.appendChild(el('h3', { textContent: 'Clonar Repositorio', style: { fontSize: '16px', marginBottom: '12px' } }));
 
+    // ─── Repo selector with search ───
+    let _allRepos = [];
+    let _selectedRepo = '';
+    let _reposLoaded = false;
+    let _reposLoading = false;
+
+    // Extract repo name from URL or owner/repo format
+    function extractRepoName(input) {
+      return input.split('/').pop().replace(/\.git$/, '') || input;
+    }
+
     const repoInput = el('input', {
       type: 'text',
-      placeholder: 'owner/repo (ex: lucasaugustodev/vultr-vm-creator)',
-      style: { marginBottom: '8px' },
+      placeholder: 'Buscar, digitar owner/repo ou colar URL do GitHub...',
+      style: { marginBottom: '0' },
     });
 
+    const repoDropdown = el('div', {
+      style: {
+        maxHeight: '220px', overflowY: 'auto', display: 'none',
+        border: '1px solid var(--border)', borderTop: 'none', borderRadius: '0 0 8px 8px',
+        background: 'var(--surface0)',
+      },
+    });
+
+    async function loadRepos() {
+      if (_reposLoaded || _reposLoading) return;
+      _reposLoading = true;
+      repoDropdown.innerHTML = '';
+      repoDropdown.appendChild(el('div', {
+        textContent: 'Carregando repos...',
+        style: { padding: '10px 12px', color: 'var(--text-muted)', fontSize: '13px' },
+      }));
+      repoDropdown.style.display = 'block';
+
+      try {
+        console.log('[GitHub CLI] Fetching repos...');
+        const data = await API.listGitHubCLIRepos();
+        console.log('[GitHub CLI] Got', (data.repos || []).length, 'repos');
+        _allRepos = (data.repos || []).sort((a, b) =>
+          new Date(b.updatedAt) - new Date(a.updatedAt)
+        );
+        _reposLoaded = true;
+        renderRepoList(repoInput.value);
+      } catch (err) {
+        console.error('[GitHub CLI] Error loading repos:', err);
+        repoDropdown.innerHTML = '';
+        repoDropdown.appendChild(el('div', {
+          style: { padding: '10px 12px' },
+        }, [
+          el('div', { textContent: 'Erro: ' + err.message, style: { color: 'var(--danger)', fontSize: '13px', marginBottom: '8px' } }),
+          el('button', {
+            className: 'btn btn-sm',
+            textContent: 'Tentar novamente',
+            style: { fontSize: '11px', padding: '2px 8px' },
+            onClick: (e) => { e.stopPropagation(); _reposLoading = false; loadRepos(); },
+          }),
+        ]));
+      } finally {
+        _reposLoading = false;
+      }
+    }
+
+    function renderRepoList(filter) {
+      repoDropdown.innerHTML = '';
+      const query = (filter || '').toLowerCase();
+      const filtered = _allRepos.filter(r =>
+        r.nameWithOwner.toLowerCase().includes(query) ||
+        (r.description || '').toLowerCase().includes(query)
+      );
+
+      if (filtered.length === 0) {
+        repoDropdown.appendChild(el('div', {
+          textContent: query ? 'Nenhum repo encontrado' : 'Nenhum repositorio',
+          style: { padding: '10px 12px', color: 'var(--text-muted)', fontSize: '13px' },
+        }));
+        repoDropdown.style.display = 'block';
+        return;
+      }
+
+      for (const r of filtered) {
+        const repoName = r.nameWithOwner.split('/').pop();
+        const item = el('div', {
+          style: {
+            padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
+            borderBottom: '1px solid var(--border)',
+          },
+        }, [
+          el('span', {
+            textContent: r.isPrivate ? '🔒' : '📂',
+            style: { fontSize: '14px', flexShrink: '0' },
+          }),
+          el('div', { style: { flex: '1', minWidth: '0' } }, [
+            el('div', {
+              textContent: r.nameWithOwner,
+              style: { fontSize: '13px', fontWeight: '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+            }),
+            ...(r.description ? [el('div', {
+              textContent: r.description,
+              style: { fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+            })] : []),
+          ]),
+        ]);
+
+        item.addEventListener('mouseenter', () => { item.style.background = 'var(--surface1)'; });
+        item.addEventListener('mouseleave', () => { item.style.background = ''; });
+        item.addEventListener('click', () => {
+          _selectedRepo = r.nameWithOwner;
+          repoInput.value = r.nameWithOwner;
+          repoDropdown.style.display = 'none';
+          // Auto-fill destination directory
+          if (!destInput.value.trim()) {
+            destInput.value = `C:\\Users\\PC\\Documents\\${repoName}`;
+          }
+        });
+
+        repoDropdown.appendChild(item);
+      }
+      repoDropdown.style.display = 'block';
+    }
+
+    repoInput.addEventListener('focus', () => {
+      if (!_reposLoaded) { loadRepos(); return; }
+      renderRepoList(repoInput.value);
+    });
+    repoInput.addEventListener('input', () => {
+      _selectedRepo = '';
+      const val = repoInput.value.trim();
+      // If user pasted a full URL, auto-fill dest and close dropdown
+      if (val.startsWith('http://') || val.startsWith('https://') || val.startsWith('git@')) {
+        repoDropdown.style.display = 'none';
+        if (!destInput.value.trim()) {
+          destInput.value = `C:\\Users\\PC\\Documents\\${extractRepoName(val)}`;
+        }
+        return;
+      }
+      if (_reposLoaded) renderRepoList(val);
+    });
+    document.addEventListener('click', (e) => {
+      if (!repoInput.contains(e.target) && !repoDropdown.contains(e.target)) {
+        repoDropdown.style.display = 'none';
+      }
+    });
+
+    // ─── Destination directory with quick-pick buttons ───
     const destInput = el('input', {
       type: 'text',
-      placeholder: 'Diretorio destino (default: /opt/repo-name)',
-      style: { marginBottom: '12px' },
+      placeholder: 'Diretorio destino (ex: C:\\Users\\PC\\Documents\\repo)',
+      style: { marginBottom: '4px' },
     });
+
+    const destShortcuts = el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' } });
+
+    const basePaths = [
+      { label: 'Documents', path: 'C:\\Users\\PC\\Documents' },
+      { label: 'Desktop', path: 'C:\\Users\\PC\\Desktop' },
+      { label: 'Projetos', path: 'C:\\Users\\PC\\projetos' },
+    ];
+
+    for (const bp of basePaths) {
+      destShortcuts.appendChild(el('button', {
+        className: 'btn btn-sm',
+        textContent: bp.label,
+        style: { fontSize: '11px', padding: '2px 8px', color: 'var(--text-muted)' },
+        onClick: () => {
+          const repo = _selectedRepo || repoInput.value.trim();
+          const repoName = repo ? extractRepoName(repo) : '';
+          destInput.value = repoName ? `${bp.path}\\${repoName}` : bp.path;
+        },
+      }));
+    }
 
     const cloneResult = el('div', { style: { marginTop: '12px' } });
 
@@ -1223,8 +1357,8 @@ function renderGitHubCLIStatus(container, statusCard, status) {
       className: 'btn btn-primary',
       textContent: 'Clonar',
       onClick: async () => {
-        const repo = repoInput.value.trim();
-        if (!repo) { showToast('Informe o repositorio', 'error'); return; }
+        const repo = _selectedRepo || repoInput.value.trim();
+        if (!repo) { showToast('Selecione ou informe o repositorio', 'error'); return; }
 
         cloneBtn.disabled = true;
         cloneBtn.textContent = 'Clonando...';
@@ -1250,13 +1384,17 @@ function renderGitHubCLIStatus(container, statusCard, status) {
       },
     });
 
-    cloneSection.appendChild(el('div', { className: 'form-group' }, [
+    const repoGroup = el('div', { className: 'form-group', style: { position: 'relative' } }, [
       el('label', { textContent: 'Repositorio' }),
       repoInput,
-    ]));
+      repoDropdown,
+    ]);
+
+    cloneSection.appendChild(repoGroup);
     cloneSection.appendChild(el('div', { className: 'form-group' }, [
       el('label', { textContent: 'Diretorio destino (opcional)' }),
       destInput,
+      destShortcuts,
     ]));
     cloneSection.appendChild(cloneBtn);
     cloneSection.appendChild(cloneResult);

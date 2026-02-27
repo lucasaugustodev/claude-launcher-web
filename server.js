@@ -632,8 +632,8 @@ app.post('/api/github-cli/clone', async (req, res) => {
   const { repo, destDir } = req.body;
   if (!repo) return res.status(400).json({ error: 'repo is required (e.g. owner/repo-name)' });
 
-  const repoName = repo.includes('/') ? repo.split('/').pop() : repo;
-  const dest = destDir || `/opt/${repoName}`;
+  const repoName = repo.split('/').pop().replace(/\.git$/, '') || repo;
+  const dest = destDir || `C:\\Users\\PC\\Documents\\${repoName}`;
 
   try {
     const result = await githubCli.cloneRepo(repo, dest);
