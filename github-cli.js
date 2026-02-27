@@ -159,4 +159,20 @@ function cloneRepo(repo, destDir) {
   });
 }
 
-module.exports = { checkInstalled, checkAuth, getStatus, install, cloneRepo };
+// ─── List repos via gh CLI ───
+function listRepos() {
+  return new Promise((resolve, reject) => {
+    execFile('gh', ['repo', 'list', '--limit', '100', '--json', 'nameWithOwner,description,isPrivate,updatedAt'],
+      { timeout: 15000 }, (err, stdout) => {
+        if (err) return reject(new Error('Falha ao listar repos: ' + err.message));
+        try {
+          const repos = JSON.parse(stdout);
+          resolve(repos);
+        } catch {
+          reject(new Error('Falha ao parsear lista de repos'));
+        }
+      });
+  });
+}
+
+module.exports = { checkInstalled, checkAuth, getStatus, install, cloneRepo, listRepos };
