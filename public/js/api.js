@@ -1,5 +1,9 @@
 // ─── API Client ───
 
+// Base path for reverse proxy support (e.g. /launcher/ or /)
+const _basePath = location.pathname.substring(0, location.pathname.lastIndexOf('/') + 1) || '/';
+function _url(path) { return _basePath + path; }
+
 const API = {
   _token: null,
   _ws: null,
@@ -26,7 +30,7 @@ const API = {
       headers['Authorization'] = 'Bearer ' + this._token;
     }
 
-    const res = await fetch(path, { ...options, headers });
+    const res = await fetch(_url(path), { ...options, headers });
 
     if (res.status === 401) {
       this.setToken(null);
@@ -47,11 +51,11 @@ const API = {
   checkAuthStatus() {
     const headers = {};
     if (this._token) headers['Authorization'] = 'Bearer ' + this._token;
-    return fetch('/api/auth/status', { headers }).then(r => r.json());
+    return fetch(_url('api/auth/status'), { headers }).then(r => r.json());
   },
 
   async setup(username, password) {
-    const res = await fetch('/api/auth/setup', {
+    const res = await fetch(_url('api/auth/setup'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
@@ -63,7 +67,7 @@ const API = {
   },
 
   async login(username, password) {
-    const res = await fetch('/api/auth/login', {
+    const res = await fetch(_url('api/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
@@ -76,17 +80,17 @@ const API = {
 
   async logout() {
     try {
-      await this.fetch('/api/auth/logout', { method: 'POST' });
+      await this.fetch('api/auth/logout', { method: 'POST' });
     } catch {}
     this.setToken(null);
   },
 
   // ─── Profiles ───
 
-  getProfiles() { return this.fetch('/api/profiles'); },
+  getProfiles() { return this.fetch('api/profiles'); },
 
   createProfile(data) {
-    return this.fetch('/api/profiles', { method: 'POST', body: JSON.stringify(data) });
+    return this.fetch('api/profiles', { method: 'POST', body: JSON.stringify(data) });
   },
 
   updateProfile(id, data) {
@@ -99,12 +103,12 @@ const API = {
 
   // ─── Sessions ───
 
-  getActiveSessions() { return this.fetch('/api/sessions'); },
+  getActiveSessions() { return this.fetch('api/sessions'); },
 
-  getSessionHistory() { return this.fetch('/api/sessions/history'); },
+  getSessionHistory() { return this.fetch('api/sessions/history'); },
 
   launchSession(profileId) {
-    return this.fetch('/api/sessions/launch', { method: 'POST', body: JSON.stringify({ profileId }) });
+    return this.fetch('api/sessions/launch', { method: 'POST', body: JSON.stringify({ profileId }) });
   },
 
   stopSession(id) {
@@ -120,23 +124,23 @@ const API = {
   },
 
   clearHistory() {
-    return this.fetch('/api/sessions/history', { method: 'DELETE' });
+    return this.fetch('api/sessions/history', { method: 'DELETE' });
   },
 
   // ─── GitHub ───
 
-  getGitHubStatus() { return this.fetch('/api/github/status'); },
+  getGitHubStatus() { return this.fetch('api/github/status'); },
 
   detectInstallations() {
-    return this.fetch('/api/github/detect', { method: 'POST' });
+    return this.fetch('api/github/detect', { method: 'POST' });
   },
 
   connectGitHub(installationId, owner, accountType) {
-    return this.fetch('/api/github/connect', { method: 'POST', body: JSON.stringify({ installationId, owner, accountType }) });
+    return this.fetch('api/github/connect', { method: 'POST', body: JSON.stringify({ installationId, owner, accountType }) });
   },
 
   testGitHub() {
-    return this.fetch('/api/github/test', { method: 'POST' });
+    return this.fetch('api/github/test', { method: 'POST' });
   },
 
   syncSessionToGitHub(id) {
@@ -144,19 +148,19 @@ const API = {
   },
 
   disconnectGitHub() {
-    return this.fetch('/api/github/config', { method: 'DELETE' });
+    return this.fetch('api/github/config', { method: 'DELETE' });
   },
 
   listGitHubRepos() {
-    return this.fetch('/api/github/repos');
+    return this.fetch('api/github/repos');
   },
 
   cloneGitHubRepo(owner, repo) {
-    return this.fetch('/api/github/clone', { method: 'POST', body: JSON.stringify({ owner, repo }) });
+    return this.fetch('api/github/clone', { method: 'POST', body: JSON.stringify({ owner, repo }) });
   },
 
   createGitHubRepo(name, isPrivate = true) {
-    return this.fetch('/api/github/create-repo', { method: 'POST', body: JSON.stringify({ name, private: isPrivate }) });
+    return this.fetch('api/github/create-repo', { method: 'POST', body: JSON.stringify({ name, private: isPrivate }) });
   },
 
   getWatcherStatus(sessionId) {
@@ -166,14 +170,14 @@ const API = {
   // ─── GitHub CLI ───
 
   getGitHubCLIStatus() {
-    return this.fetch('/api/github-cli/status');
+    return this.fetch('api/github-cli/status');
   },
 
   async installGitHubCLI(onProgress) {
     const headers = {};
     if (this._token) headers['Authorization'] = 'Bearer ' + this._token;
 
-    const res = await fetch('/api/github-cli/install', { method: 'POST', headers });
+    const res = await fetch(_url('api/github-cli/install'), { method: 'POST', headers });
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let result = null;
@@ -198,15 +202,15 @@ const API = {
   },
 
   startGitHubCLIAuth() {
-    return this.fetch('/api/github-cli/auth', { method: 'POST' });
+    return this.fetch('api/github-cli/auth', { method: 'POST' });
   },
 
   listGitHubCLIRepos() {
-    return this.fetch('/api/github-cli/repos');
+    return this.fetch('api/github-cli/repos');
   },
 
   cloneWithGitHubCLI(repo, destDir) {
-    return this.fetch('/api/github-cli/clone', {
+    return this.fetch('api/github-cli/clone', {
       method: 'POST',
       body: JSON.stringify({ repo, destDir: destDir || undefined }),
     });
@@ -215,27 +219,27 @@ const API = {
   // ─── File Manager ───
 
   listFiles(dirPath) {
-    return this.fetch('/api/files?path=' + encodeURIComponent(dirPath));
+    return this.fetch('api/files?path=' + encodeURIComponent(dirPath));
   },
 
   createDirectory(dirPath) {
-    return this.fetch('/api/files/mkdir', { method: 'POST', body: JSON.stringify({ path: dirPath }) });
+    return this.fetch('api/files/mkdir', { method: 'POST', body: JSON.stringify({ path: dirPath }) });
   },
 
   deleteFile(filePath) {
-    return this.fetch('/api/files/delete', { method: 'POST', body: JSON.stringify({ path: filePath }) });
+    return this.fetch('api/files/delete', { method: 'POST', body: JSON.stringify({ path: filePath }) });
   },
 
   readFile(filePath) {
-    return this.fetch('/api/files/read?path=' + encodeURIComponent(filePath));
+    return this.fetch('api/files/read?path=' + encodeURIComponent(filePath));
   },
 
   writeFile(filePath, content) {
-    return this.fetch('/api/files/write', { method: 'POST', body: JSON.stringify({ path: filePath, content }) });
+    return this.fetch('api/files/write', { method: 'POST', body: JSON.stringify({ path: filePath, content }) });
   },
 
   getDownloadUrl(filePath) {
-    return '/api/files/download?path=' + encodeURIComponent(filePath) + '&token=' + encodeURIComponent(this._token);
+    return _url('api/files/download?path=' + encodeURIComponent(filePath) + '&token=' + encodeURIComponent(this._token));
   },
 
   async uploadFiles(dirPath, files) {
@@ -246,7 +250,7 @@ const API = {
     }
     const headers = {};
     if (this._token) headers['Authorization'] = 'Bearer ' + this._token;
-    const res = await fetch('/api/files/upload', { method: 'POST', headers, body: formData });
+    const res = await fetch(_url('api/files/upload'), { method: 'POST', headers, body: formData });
     if (res.status === 401) { this.setToken(null); location.reload(); throw new Error('Unauthorized'); }
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
@@ -262,7 +266,7 @@ const API = {
     if (!this._token) return;
 
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${proto}//${location.host}/ws?token=${encodeURIComponent(this._token)}`;
+    const url = `${proto}//${location.host}${_basePath}ws?token=${encodeURIComponent(this._token)}`;
 
     this._ws = new WebSocket(url);
 
