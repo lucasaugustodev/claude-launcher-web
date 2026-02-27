@@ -407,3 +407,170 @@ th {
 .copy-block:hover {
   border-color: var(--accent);
 }
+
+/* ─── File Manager ─── */
+.fm-breadcrumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+  font-size: 13px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+}
+.fm-crumb.clickable { color: var(--accent); cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+.fm-crumb.clickable:hover { background: var(--bg-hover); }
+.fm-crumb.current { color: var(--text-primary); font-weight: 600; }
+.fm-sep { color: var(--text-muted); }
+
+.fm-table {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.fm-row {
+  display: grid;
+  grid-template-columns: 1fr 90px 70px 155px 130px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+.fm-row:last-child { border-bottom: none; }
+.fm-row:not(.fm-header):hover { background: var(--bg-hover); }
+.fm-row.fm-header {
+  background: var(--bg-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.fm-row.fm-parent { cursor: pointer; }
+.fm-cell {
+  padding: 9px 12px;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fm-name { display: flex; align-items: center; gap: 8px; }
+.fm-icon { font-size: 15px; min-width: 20px; text-align: center; }
+.fm-link { color: var(--accent); cursor: pointer; }
+.fm-link:hover { text-decoration: underline; }
+.fm-size { text-align: right; color: var(--text-muted); }
+.fm-perms { font-family: monospace; color: var(--text-muted); font-size: 12px; }
+.fm-date { color: var(--text-muted); font-size: 12px; }
+.fm-actions { display: flex; gap: 4px; justify-content: flex-end; }
+
+#content.fm-drag-active {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+  background: rgba(137, 180, 250, 0.05);
+}
+
+/* ─── File Editor/Viewer ─── */
+.fm-editor-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-primary);
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+}
+.fm-editor-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  min-height: 44px;
+}
+.fm-editor-title {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fm-editor-actions { display: flex; gap: 6px; }
+.fm-editor-body {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
+.fm-code-view {
+  margin: 0;
+  padding: 12px 12px 12px 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Cascadia Code', 'Fira Code', 'SF Mono', Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre;
+  overflow-x: auto;
+  min-height: 100%;
+  display: flex;
+  tab-size: 2;
+}
+.fm-line-numbers {
+  text-align: right;
+  padding: 0 12px 0 16px;
+  color: var(--text-muted);
+  user-select: none;
+  min-width: 48px;
+  border-right: 1px solid var(--border);
+  margin-right: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.fm-code-editor {
+  width: 100%;
+  height: 100%;
+  padding: 12px 16px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: none;
+  outline: none;
+  resize: none;
+  font-family: 'Cascadia Code', 'Fira Code', 'SF Mono', Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  tab-size: 2;
+}
+.fm-preview-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: 24px;
+  background: #111;
+}
+.fm-preview-image {
+  max-width: 100%;
+  max-height: calc(100vh - 60px);
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+}
+.fm-preview-media {
+  max-width: 100%;
+  max-height: calc(100vh - 60px);
+  border-radius: 4px;
+}
+.fm-preview-pdf {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+@media (max-width: 768px) {
+  .fm-row { grid-template-columns: 1fr 80px 80px; }
+  .fm-perms, .fm-date { display: none; }
+}

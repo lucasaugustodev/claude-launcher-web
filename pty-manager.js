@@ -423,6 +423,15 @@ function cleanupOrphaned() {
   return cleaned;
 }
 
+// Spawn an interactive command in a PTY (for gh auth login, etc.)
+function spawnInteractive(command, args = [], cwd) {
+  const sessionId = uuid();
+  const env = { ...process.env, TERM: 'xterm-256color', FORCE_COLOR: '1' };
+  const shellAndArgs = { shell: command, args };
+  const handle = spawnSession(sessionId, shellAndArgs, cwd || process.cwd(), env);
+  return { id: sessionId, pid: handle.pid };
+}
+
 function setBroadcast(fn) {
   _broadcast = fn;
 }
@@ -431,5 +440,5 @@ module.exports = {
   launchSession, resumeSession, stopSession, sendInput, resizePty,
   getActiveSessions, getSessionOutput,
   addListener, removeListener, stopAll, cleanupOrphaned,
-  setBroadcast,
+  setBroadcast, spawnInteractive,
 };

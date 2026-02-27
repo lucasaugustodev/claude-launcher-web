@@ -134,7 +134,7 @@
       case 'profiles': renderProfilesPage(content); break;
       case 'active': renderActivePage(content); break;
       case 'history': renderHistoryPage(content); break;
-      case 'github': renderGitHubPage(content); break;
+      case 'files': renderFileManagerPage(content); break;
       case 'github-cli': renderGitHubCLIPage(content); break;
     }
   }

@@ -8,6 +8,9 @@ const ptyManager = require('./pty-manager');
 const githubSync = require('./github-sync');
 const gitWatcher = require('./git-watcher');
 const githubCli = require('./github-cli');
+const multer = require('multer');
+const fs = require('fs');
+const { execFile } = require('child_process');
 
 const PORT = process.env.PORT || 3001;
 
@@ -64,7 +67,7 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000);
 
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── Auth API ───
@@ -146,6 +149,199 @@ app.use('/api/profiles', checkToken);
 app.use('/api/sessions', checkToken);
 app.use('/api/github', checkToken);
 app.use('/api/github-cli', checkToken);
+
+// ─── File Manager Security ───
+
+function sanitizePath(requestedPath) {
+  return path.resolve('/', requestedPath || '/');
+}
+
+// ─── File Manager API ───
+
+app.get('/api/files', checkToken, async (req, res) => {
+  const dirPath = sanitizePath(req.query.path || '/home');
+
+  try {
+    const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+    const items = [];
+
+    for (const entry of entries) {
+      try {
+        const fullPath = path.join(dirPath, entry.name);
+        const stat = await fs.promises.stat(fullPath);
+        items.push({
+          name: entry.name,
+          path: fullPath,
+          isDirectory: entry.isDirectory(),
+          size: stat.size,
+          modified: stat.mtime.toISOString(),
+          permissions: '0' + (stat.mode & 0o777).toString(8),
+        });
+      } catch {
+        items.push({
+          name: entry.name,
+          path: path.join(dirPath, entry.name),
+          isDirectory: entry.isDirectory(),
+          size: 0,
+          modified: null,
+          permissions: '???',
+        });
+      }
+    }
+
+    items.sort((a, b) => {
+      if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    res.json({
+      path: dirPath,
+      parent: dirPath === '/' ? null : path.dirname(dirPath),
+      items,
+    });
+  } catch (err) {
+    if (err.code === 'ENOENT') return res.status(404).json({ error: 'Directory not found' });
+    if (err.code === 'EACCES') return res.status(403).json({ error: 'Permission denied' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/files/download', (req, res, next) => {
+  if (req.query.token && !req.headers.authorization) {
+    req.headers.authorization = 'Bearer ' + req.query.token;
+  }
+  checkToken(req, res, next);
+}, async (req, res) => {
+  const filePath = sanitizePath(req.query.path);
+
+  try {
+    const stat = await fs.promises.stat(filePath);
+    if (stat.isDirectory()) return res.status(400).json({ error: 'Cannot download a directory' });
+
+    const filename = path.basename(filePath);
+    const ext = path.extname(filename).toLowerCase();
+    const mimeTypes = {
+      '.txt': 'text/plain', '.html': 'text/html', '.css': 'text/css',
+      '.js': 'application/javascript', '.json': 'application/json',
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif', '.svg': 'image/svg+xml', '.webp': 'image/webp',
+      '.bmp': 'image/bmp', '.ico': 'image/x-icon',
+      '.mp4': 'video/mp4', '.webm': 'video/webm', '.ogg': 'video/ogg',
+      '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.flac': 'audio/flac',
+      '.pdf': 'application/pdf', '.zip': 'application/zip',
+      '.tar': 'application/x-tar', '.gz': 'application/gzip',
+    };
+    const contentType = mimeTypes[ext] || 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Length', stat.size);
+
+    // Inline for previewable types, attachment for downloads
+    const inlineTypes = ['image/', 'video/', 'audio/', 'application/pdf', 'text/'];
+    const isInline = inlineTypes.some(t => contentType.startsWith(t));
+    res.setHeader('Content-Disposition', isInline ? `inline; filename="${filename}"` : `attachment; filename="${filename}"`);
+
+    const stream = fs.createReadStream(filePath);
+    stream.pipe(res);
+    stream.on('error', (err) => {
+      if (!res.headersSent) res.status(500).json({ error: err.message });
+    });
+  } catch (err) {
+    if (err.code === 'ENOENT') return res.status(404).json({ error: 'File not found' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const os = require('os');
+const uploadTmpDir = path.join(os.tmpdir(), 'claude-fm-uploads');
+if (!fs.existsSync(uploadTmpDir)) fs.mkdirSync(uploadTmpDir, { recursive: true });
+
+const upload = multer({
+  dest: uploadTmpDir,
+  limits: { fileSize: 100 * 1024 * 1024 },
+});
+
+app.post('/api/files/upload', checkToken, upload.array('files', 20), (req, res) => {
+  if (!req.files || req.files.length === 0) {
+    return res.status(400).json({ error: 'No files uploaded' });
+  }
+
+  const destDir = sanitizePath(req.body.path || '/home');
+  const results = [];
+  let pending = req.files.length;
+
+  for (const file of req.files) {
+    const destPath = path.join(destDir, file.originalname);
+    // sudo mv from temp to destination, then fix permissions
+    execFile('sudo', ['mv', file.path, destPath], (err) => {
+      if (err) {
+        results.push({ name: file.originalname, error: err.message });
+      } else {
+        results.push({ name: file.originalname, size: file.size, path: destPath });
+      }
+      pending--;
+      if (pending === 0) {
+        res.json({ uploaded: results });
+      }
+    });
+  }
+});
+
+app.post('/api/files/mkdir', checkToken, (req, res) => {
+  const dirPath = sanitizePath(req.body.path);
+
+  execFile('sudo', ['mkdir', '-p', dirPath], (err, stdout, stderr) => {
+    if (err) return res.status(500).json({ error: stderr || err.message });
+    res.json({ ok: true, path: dirPath });
+  });
+});
+
+app.post('/api/files/delete', checkToken, (req, res) => {
+  const targetPath = sanitizePath(req.body.path);
+
+  const protectedDirs = ['/', '/bin', '/sbin', '/usr', '/etc', '/boot', '/dev', '/proc', '/sys', '/var', '/lib', '/lib64'];
+  if (protectedDirs.includes(targetPath)) {
+    return res.status(403).json({ error: 'Cannot delete protected system directory' });
+  }
+
+  execFile('sudo', ['rm', '-rf', targetPath], (err, stdout, stderr) => {
+    if (err) return res.status(500).json({ error: stderr || err.message });
+    res.json({ ok: true });
+  });
+});
+
+app.get('/api/files/read', checkToken, (req, res) => {
+  const filePath = sanitizePath(req.query.path);
+
+  execFile('sudo', ['cat', filePath], { maxBuffer: 5 * 1024 * 1024 }, (err, stdout, stderr) => {
+    if (err) {
+      if (stderr && stderr.includes('No such file')) return res.status(404).json({ error: 'File not found' });
+      return res.status(500).json({ error: stderr || err.message });
+    }
+    res.json({ path: filePath, content: stdout, name: path.basename(filePath) });
+  });
+});
+
+app.post('/api/files/write', checkToken, (req, res) => {
+  const filePath = sanitizePath(req.body.path);
+  const content = req.body.content;
+
+  if (content === undefined || content === null) {
+    return res.status(400).json({ error: 'content is required' });
+  }
+
+  const { spawn } = require('child_process');
+  const proc = spawn('sudo', ['tee', filePath], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+  let stderr = '';
+  proc.stderr.on('data', (d) => { stderr += d.toString(); });
+  proc.on('close', (code) => {
+    if (code !== 0) return res.status(500).json({ error: stderr || 'Write failed' });
+    res.json({ ok: true, path: filePath });
+  });
+
+  proc.stdin.write(content);
+  proc.stdin.end();
+});
 
 // ─── Profiles API ───
 
@@ -412,6 +608,15 @@ app.post('/api/github-cli/install', async (req, res) => {
     res.write(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);
   }
   res.end();
+});
+
+app.post('/api/github-cli/auth', (req, res) => {
+  try {
+    const session = ptyManager.spawnInteractive('gh', ['auth', 'login'], process.cwd());
+    res.json({ sessionId: session.id, pid: session.pid });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/github-cli/clone', async (req, res) => {

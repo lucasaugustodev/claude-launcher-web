@@ -544,217 +544,518 @@ async function updateActiveCount() {
   } catch {}
 }
 
-// ─── GitHub Settings Page ───
+// ═══════════════════════════════════════════
+// File Manager Page
+// ═══════════════════════════════════════════
 
-async function renderGitHubPage(container) {
-  container.innerHTML = '';
+let _fmCurrentPath = '/home';
 
-  const header = el('div', { className: 'page-title' }, [
-    el('span', { textContent: 'GitHub Sync' }),
-  ]);
-  container.appendChild(header);
+function formatFileSize(bytes) {
+  if (bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return (bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
+}
 
-  let status;
+function getFileIcon(filename) {
+  const ext = filename.split('.').pop().toLowerCase();
+  const icons = {
+    js: '📄', ts: '📄', py: '📄', json: '📄', html: '📄', css: '📄',
+    md: '📄', sh: '📄', log: '📄', txt: '📄', yml: '📄', yaml: '📄',
+    zip: '📦', tar: '📦', gz: '📦', rar: '📦',
+    png: '🖼', jpg: '🖼', jpeg: '🖼', gif: '🖼', svg: '🖼',
+    pdf: '📕',
+  };
+  return icons[ext] || '📄';
+}
+
+function renderBreadcrumbs(currentPath, container) {
+  const parts = currentPath.split('/').filter(Boolean);
+  const bc = el('div', { className: 'fm-breadcrumbs' });
+
+  bc.appendChild(el('span', {
+    className: 'fm-crumb clickable',
+    textContent: '/',
+    onClick: () => { _fmCurrentPath = '/'; loadDirectory('/', container); },
+  }));
+
+  let accumulated = '';
+  for (let i = 0; i < parts.length; i++) {
+    accumulated += '/' + parts[i];
+    const p = accumulated;
+
+    bc.appendChild(el('span', { className: 'fm-sep', textContent: ' / ' }));
+
+    if (i === parts.length - 1) {
+      bc.appendChild(el('span', { className: 'fm-crumb current', textContent: parts[i] }));
+    } else {
+      bc.appendChild(el('span', {
+        className: 'fm-crumb clickable',
+        textContent: parts[i],
+        onClick: () => { _fmCurrentPath = p; loadDirectory(p, container); },
+      }));
+    }
+  }
+  return bc;
+}
+
+async function loadDirectory(dirPath, container) {
+  const fileArea = document.getElementById('fm-file-area');
+  if (!fileArea) return;
+
+  fileArea.innerHTML = '';
+  fileArea.appendChild(el('div', { className: 'empty-state', innerHTML: '<p>Carregando...</p>' }));
+
   try {
-    status = await API.getGitHubStatus();
-  } catch (err) {
-    container.appendChild(el('div', { className: 'empty-state', innerHTML: `<p>Erro: ${err.message}</p>` }));
-    return;
-  }
+    const data = await API.listFiles(dirPath);
+    _fmCurrentPath = data.path;
 
-  if (status.connected && status.enabled) {
-    renderGitHubConnected(container, status);
-  } else {
-    renderGitHubDisconnected(container);
-  }
-}
+    const oldBc = container.querySelector('.fm-breadcrumbs');
+    if (oldBc) oldBc.replaceWith(renderBreadcrumbs(data.path, container));
 
-function renderGitHubConnected(container, status) {
-  const card = el('div', { className: 'card', style: { maxWidth: '500px' } });
+    fileArea.innerHTML = '';
 
-  const statusLine = el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' } }, [
-    el('span', { className: 'status-dot online' }),
-    el('span', { textContent: 'Conectado', style: { color: 'var(--text-secondary)', fontSize: '13px' } }),
-  ]);
-  card.appendChild(statusLine);
+    if (data.items.length === 0 && !data.parent) {
+      fileArea.appendChild(el('div', { className: 'empty-state', innerHTML: '<p>Pasta vazia</p>' }));
+      return;
+    }
 
-  const info = el('div', { style: { marginBottom: '16px' } });
-  info.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:8px;">
-      <div><strong>Conta:</strong> ${status.owner}</div>
-      <div><strong>Repositorio:</strong> <a href="https://github.com/${status.owner}/${status.repo}" target="_blank" style="color:var(--accent)">${status.owner}/${status.repo}</a></div>
-      <div><strong>Sync:</strong> Automatico (cada sessao finalizada)</div>
-    </div>
-  `;
-  card.appendChild(info);
+    const table = el('div', { className: 'fm-table' });
 
-  const actions = el('div', { style: { display: 'flex', gap: '8px' } });
+    table.appendChild(el('div', { className: 'fm-row fm-header' }, [
+      el('div', { className: 'fm-cell fm-name', textContent: 'Nome' }),
+      el('div', { className: 'fm-cell fm-size', textContent: 'Tamanho' }),
+      el('div', { className: 'fm-cell fm-perms', textContent: 'Perm.' }),
+      el('div', { className: 'fm-cell fm-date', textContent: 'Modificado' }),
+      el('div', { className: 'fm-cell fm-actions', textContent: '' }),
+    ]));
 
-  actions.appendChild(el('button', {
-    className: 'btn btn-primary',
-    textContent: 'Testar Conexao',
-    onClick: async (e) => {
-      const btn = e.target;
-      btn.textContent = 'Testando...';
-      btn.disabled = true;
-      try {
-        const result = await API.testGitHub();
-        if (result.success) {
-          showToast(`Conexao OK! Repo: ${result.repoName}`);
-        } else {
-          showToast(`Falha: ${result.error}`, 'error');
-        }
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-      btn.textContent = 'Testar Conexao';
-      btn.disabled = false;
-    },
-  }));
-
-  actions.appendChild(el('button', {
-    className: 'btn btn-danger',
-    textContent: 'Desconectar',
-    onClick: async () => {
-      if (!confirm('Desconectar GitHub? Sessoes nao serao mais sincronizadas.')) return;
-      try {
-        await API.disconnectGitHub();
-        showToast('GitHub desconectado');
-        renderGitHubPage(container);
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    },
-  }));
-
-  card.appendChild(actions);
-  container.appendChild(card);
-}
-
-function renderGitHubDisconnected(container) {
-  const card = el('div', { className: 'card', style: { maxWidth: '500px' } });
-
-  const statusLine = el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' } }, [
-    el('span', { className: 'status-dot offline' }),
-    el('span', { textContent: 'Desconectado', style: { color: 'var(--text-secondary)', fontSize: '13px' } }),
-  ]);
-  card.appendChild(statusLine);
-
-  const desc = el('p', {
-    textContent: 'Conecte sua conta GitHub para salvar sessoes automaticamente em um repositorio.',
-    style: { color: 'var(--text-muted)', fontSize: '14px', marginBottom: '20px' },
-  });
-  card.appendChild(desc);
-
-  // Step 1: Install app
-  const step1 = el('div', { style: { marginBottom: '20px' } });
-  step1.innerHTML = `
-    <div style="color:var(--text-secondary);font-weight:600;margin-bottom:8px;">1. Instale o app na sua conta GitHub</div>
-    <a href="https://github.com/apps/ia-hub-project/installations/new" target="_blank" class="btn btn-primary" style="display:inline-flex;text-decoration:none;">
-      Instalar ia-hub-project
-    </a>
-    <div style="color:var(--text-muted);font-size:12px;margin-top:6px;">Abre o GitHub em nova aba. Autorize o app e volte aqui.</div>
-  `;
-  card.appendChild(step1);
-
-  // Step 2: Detect
-  const step2 = el('div', { style: { marginBottom: '8px' } });
-  step2.innerHTML = `
-    <div style="color:var(--text-secondary);font-weight:600;margin-bottom:8px;">2. Detectar instalacao</div>
-  `;
-
-  const detectBtn = el('button', {
-    className: 'btn',
-    textContent: 'Detectar Instalacao',
-    id: 'gh-detect-btn',
-    onClick: async () => {
-      detectBtn.textContent = 'Buscando...';
-      detectBtn.disabled = true;
-      try {
-        const data = await API.detectInstallations();
-        renderInstallationsList(card, data.installations || []);
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-      detectBtn.textContent = 'Detectar Instalacao';
-      detectBtn.disabled = false;
-    },
-  });
-  step2.appendChild(detectBtn);
-  card.appendChild(step2);
-
-  // Installations list placeholder
-  card.appendChild(el('div', { id: 'gh-installations' }));
-
-  container.appendChild(card);
-}
-
-function renderInstallationsList(card, installations) {
-  const listDiv = card.querySelector('#gh-installations');
-  listDiv.innerHTML = '';
-
-  if (installations.length === 0) {
-    listDiv.innerHTML = '<p style="color:var(--text-muted);font-size:13px;margin-top:12px;">Nenhuma instalacao encontrada. Instale o app primeiro.</p>';
-    return;
-  }
-
-  const container = document.getElementById('content');
-
-  for (const inst of installations) {
-    const row = el('div', {
-      style: {
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '10px 12px', marginTop: '8px',
-        background: 'var(--bg-primary)', borderRadius: 'var(--radius)', border: '1px solid var(--border)',
-      },
-    }, [
-      el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } }, [
-        inst.avatarUrl
-          ? el('img', { src: inst.avatarUrl, style: { width: '28px', height: '28px', borderRadius: '50%' } })
-          : el('span', { textContent: inst.account.slice(0, 1).toUpperCase(), style: { width: '28px', height: '28px', borderRadius: '50%', background: 'var(--accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '600' } }),
-        el('div', {}, [
-          el('div', { textContent: inst.account, style: { fontWeight: '500' } }),
-          el('div', { textContent: `ID: ${inst.id}`, style: { fontSize: '12px', color: 'var(--text-muted)' } }),
+    if (data.parent) {
+      table.appendChild(el('div', {
+        className: 'fm-row fm-parent',
+        onClick: () => { _fmCurrentPath = data.parent; loadDirectory(data.parent, container); },
+      }, [
+        el('div', { className: 'fm-cell fm-name' }, [
+          el('span', { className: 'fm-icon', textContent: '⬆' }),
+          el('span', { textContent: '..' }),
         ]),
-      ]),
+        el('div', { className: 'fm-cell fm-size' }),
+        el('div', { className: 'fm-cell fm-perms' }),
+        el('div', { className: 'fm-cell fm-date' }),
+        el('div', { className: 'fm-cell fm-actions' }),
+      ]));
+    }
+
+    for (const item of data.items) {
+      const icon = item.isDirectory ? '📁' : getFileIcon(item.name);
+      const row = el('div', { className: 'fm-row' });
+
+      const nameCell = el('div', { className: 'fm-cell fm-name' }, [
+        el('span', { className: 'fm-icon', textContent: icon }),
+      ]);
+
+      if (item.isDirectory) {
+        nameCell.appendChild(el('span', {
+          className: 'fm-link',
+          textContent: item.name,
+          onClick: () => { _fmCurrentPath = item.path; loadDirectory(item.path, container); },
+        }));
+      } else {
+        nameCell.appendChild(el('span', {
+          className: 'fm-link',
+          textContent: item.name,
+          onClick: () => openFileViewer(item.path),
+        }));
+      }
+
+      row.appendChild(nameCell);
+      row.appendChild(el('div', { className: 'fm-cell fm-size', textContent: item.isDirectory ? '-' : formatFileSize(item.size) }));
+      row.appendChild(el('div', { className: 'fm-cell fm-perms', textContent: item.permissions }));
+      row.appendChild(el('div', { className: 'fm-cell fm-date', textContent: item.modified ? new Date(item.modified).toLocaleString() : '-' }));
+
+      const actionsCell = el('div', { className: 'fm-cell fm-actions' });
+
+      if (!item.isDirectory) {
+        actionsCell.appendChild(el('button', {
+          className: 'btn btn-sm',
+          title: 'Visualizar',
+          textContent: '\uD83D\uDC41',
+          onClick: (e) => { e.stopPropagation(); openFileViewer(item.path, item.size); },
+        }));
+        actionsCell.appendChild(el('button', {
+          className: 'btn btn-sm',
+          textContent: 'Baixar',
+          onClick: (e) => {
+            e.stopPropagation();
+            const a = document.createElement('a');
+            a.href = API.getDownloadUrl(item.path);
+            a.download = item.name;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+          },
+        }));
+      }
+
+      actionsCell.appendChild(el('button', {
+        className: 'btn btn-danger btn-sm',
+        textContent: 'Excluir',
+        onClick: (e) => {
+          e.stopPropagation();
+          showDeleteFileModal(item, container);
+        },
+      }));
+
+      row.appendChild(actionsCell);
+      table.appendChild(row);
+    }
+
+    fileArea.appendChild(table);
+  } catch (err) {
+    fileArea.innerHTML = '';
+    fileArea.appendChild(el('div', { className: 'empty-state', innerHTML: `<p style="color:var(--danger)">Erro: ${err.message}</p>` }));
+  }
+}
+
+function showCreateDirModal(container) {
+  const overlay = el('div', { className: 'modal-overlay' });
+  const modal = el('div', { className: 'modal' }, [
+    el('div', { className: 'modal-title', textContent: 'Nova Pasta' }),
+    el('div', { className: 'form-group' }, [
+      el('label', { textContent: 'Nome da pasta' }),
+      el('input', { type: 'text', id: 'fm-mkdir-name', placeholder: 'nome-da-pasta' }),
+    ]),
+    el('div', { style: { fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' } }, [
+      el('span', { textContent: 'Sera criada em: ' }),
+      el('code', { textContent: _fmCurrentPath }),
+    ]),
+    el('div', { className: 'modal-actions' }, [
+      el('button', { className: 'btn', textContent: 'Cancelar', onClick: () => overlay.remove() }),
       el('button', {
-        className: 'btn btn-success btn-sm',
-        textContent: 'Conectar',
-        onClick: async (e) => {
-          const btn = e.target;
-          btn.textContent = 'Conectando...';
-          btn.disabled = true;
+        className: 'btn btn-primary',
+        textContent: 'Criar',
+        onClick: async () => {
+          const name = document.getElementById('fm-mkdir-name').value.trim();
+          if (!name) { showToast('Nome obrigatorio', 'error'); return; }
+          if (name.includes('/') || name.includes('\\')) { showToast('Nome invalido', 'error'); return; }
           try {
-            const result = await API.connectGitHub(inst.id, inst.account, inst.accountType);
-            if (result.ok) {
-              showToast(`Conectado! Repo: ${result.repo}`);
-              renderGitHubPage(container);
-            } else if (result.needsRepo) {
-              // Repo doesn't exist — show create link
-              const row = btn.closest('div[style]');
-              let hint = row.querySelector('.repo-hint');
-              if (!hint) {
-                hint = el('div', { className: 'repo-hint', style: { marginTop: '8px', padding: '10px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)', fontSize: '13px' } });
-                hint.innerHTML = `
-                  <div style="color:var(--warning);margin-bottom:6px;">Repo <b>claude-sessions</b> nao encontrado.</div>
-                  <a href="${result.createUrl}" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none;display:inline-flex;margin-bottom:6px;">Criar repo no GitHub</a>
-                  <div style="color:var(--text-muted);font-size:12px;">Crie o repo e clique "Conectar" novamente.</div>
-                `;
-                row.parentElement.insertBefore(hint, row.nextSibling);
-              }
-            } else {
-              showToast('Falha ao conectar', 'error');
-            }
+            await API.createDirectory(_fmCurrentPath + '/' + name);
+            showToast('Pasta criada!');
+            overlay.remove();
+            loadDirectory(_fmCurrentPath, container);
           } catch (err) {
             showToast(err.message, 'error');
           }
-          btn.textContent = 'Conectar';
-          btn.disabled = false;
         },
       }),
-    ]);
-    listDiv.appendChild(row);
+    ]),
+  ]);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  setTimeout(() => document.getElementById('fm-mkdir-name')?.focus(), 100);
+}
+
+function showDeleteFileModal(item, container) {
+  const overlay = el('div', { className: 'modal-overlay' });
+  const typeLabel = item.isDirectory ? 'pasta' : 'arquivo';
+  const modal = el('div', { className: 'modal' }, [
+    el('div', { className: 'modal-title', textContent: `Excluir ${typeLabel}` }),
+    el('p', {
+      textContent: `Deseja excluir permanentemente "${item.name}"?${item.isDirectory ? ' Todo o conteudo sera removido.' : ''}`,
+      style: { color: 'var(--text-muted)', fontSize: '14px', marginBottom: '16px' },
+    }),
+    el('div', { style: { fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px', wordBreak: 'break-all' } }, [
+      el('code', { textContent: item.path }),
+    ]),
+    el('div', { className: 'modal-actions' }, [
+      el('button', { className: 'btn', textContent: 'Cancelar', onClick: () => overlay.remove() }),
+      el('button', {
+        className: 'btn btn-danger',
+        textContent: 'Excluir',
+        onClick: async () => {
+          try {
+            await API.deleteFile(item.path);
+            showToast(`${item.name} excluido!`);
+            overlay.remove();
+            loadDirectory(_fmCurrentPath, container);
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        },
+      }),
+    ]),
+  ]);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+}
+
+function triggerFileUpload(container) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.multiple = true;
+  input.onchange = async () => {
+    if (input.files.length === 0) return;
+    await doUpload(Array.from(input.files), container);
+  };
+  input.click();
+}
+
+async function doUpload(files, container) {
+  showToast(`Enviando ${files.length} arquivo(s)...`);
+  try {
+    const result = await API.uploadFiles(_fmCurrentPath, files);
+    showToast(`${result.uploaded.length} arquivo(s) enviado(s)!`);
+    loadDirectory(_fmCurrentPath, container);
+  } catch (err) {
+    showToast('Falha no upload: ' + err.message, 'error');
   }
+}
+
+function setupDragDrop(container) {
+  const content = document.getElementById('content');
+  let dragCounter = 0;
+
+  const handler = (e) => { e.preventDefault(); e.stopPropagation(); };
+  content.addEventListener('dragenter', (e) => { handler(e); dragCounter++; content.classList.add('fm-drag-active'); });
+  content.addEventListener('dragover', handler);
+  content.addEventListener('dragleave', (e) => { handler(e); dragCounter--; if (dragCounter <= 0) { dragCounter = 0; content.classList.remove('fm-drag-active'); } });
+  content.addEventListener('drop', async (e) => {
+    handler(e);
+    dragCounter = 0;
+    content.classList.remove('fm-drag-active');
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) await doUpload(files, container);
+  });
+}
+
+function getFileType(filename) {
+  const ext = filename.split('.').pop().toLowerCase();
+  const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'bmp', 'webp', 'ico'];
+  const videoExts = ['mp4', 'webm', 'ogg', 'mov', 'avi'];
+  const audioExts = ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a'];
+  const pdfExts = ['pdf'];
+  const textExts = [
+    'txt', 'md', 'log', 'csv', 'tsv',
+    'js', 'ts', 'jsx', 'tsx', 'mjs', 'cjs',
+    'py', 'rb', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'hpp', 'cs',
+    'html', 'htm', 'css', 'scss', 'less', 'xml', 'svg',
+    'json', 'yml', 'yaml', 'toml', 'ini', 'conf', 'cfg',
+    'sh', 'bash', 'zsh', 'fish', 'bat', 'ps1',
+    'sql', 'graphql', 'gql',
+    'env', 'gitignore', 'dockerignore', 'editorconfig',
+    'makefile', 'dockerfile',
+    'service', 'timer', 'socket',
+    'properties', 'gradle', 'pom',
+  ];
+  const noExtTextFiles = ['makefile', 'dockerfile', 'gemfile', 'rakefile', 'procfile', 'license', 'readme', 'changelog'];
+
+  if (imageExts.includes(ext)) return 'image';
+  if (videoExts.includes(ext)) return 'video';
+  if (audioExts.includes(ext)) return 'audio';
+  if (pdfExts.includes(ext)) return 'pdf';
+  if (textExts.includes(ext)) return 'text';
+  if (noExtTextFiles.includes(filename.toLowerCase())) return 'text';
+  return 'unknown';
+}
+
+async function openFileViewer(filePath, fileSize) {
+  const fileName = filePath.split('/').pop();
+  const fileType = getFileType(fileName);
+  const downloadUrl = API.getDownloadUrl(filePath);
+
+  const overlay = el('div', { className: 'fm-editor-overlay' });
+
+  // Header
+  const header = el('div', { className: 'fm-editor-header' });
+  header.appendChild(el('button', {
+    className: 'btn btn-sm',
+    innerHTML: '&larr; Voltar',
+    onClick: () => overlay.remove(),
+  }));
+  header.appendChild(el('span', { className: 'fm-editor-title', textContent: filePath }));
+
+  const actionsDiv = el('div', { className: 'fm-editor-actions' });
+  const editBtn = el('button', { className: 'btn btn-sm', textContent: 'Editar', style: { display: 'none' } });
+  const saveBtn = el('button', { className: 'btn btn-primary btn-sm', textContent: 'Salvar', style: { display: 'none' } });
+  const cancelBtn = el('button', { className: 'btn btn-sm', textContent: 'Cancelar', style: { display: 'none' } });
+  const downloadBtn = el('button', {
+    className: 'btn btn-sm',
+    textContent: 'Baixar',
+    onClick: () => {
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    },
+  });
+  actionsDiv.appendChild(editBtn);
+  actionsDiv.appendChild(saveBtn);
+  actionsDiv.appendChild(cancelBtn);
+  actionsDiv.appendChild(downloadBtn);
+  header.appendChild(actionsDiv);
+  overlay.appendChild(header);
+
+  // Body
+  const body = el('div', { className: 'fm-editor-body' });
+  body.appendChild(el('div', { className: 'empty-state', innerHTML: '<p>Carregando...</p>' }));
+  overlay.appendChild(body);
+  document.body.appendChild(overlay);
+
+  // Close on Escape
+  const onKey = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onKey); } };
+  document.addEventListener('keydown', onKey);
+
+  let fileContent = '';
+
+  // Render based on file type
+  if (fileType === 'image') {
+    body.innerHTML = '';
+    const img = el('img', {
+      src: downloadUrl,
+      className: 'fm-preview-image',
+      alt: fileName,
+    });
+    img.onerror = () => {
+      body.innerHTML = '';
+      body.appendChild(el('div', { className: 'empty-state', innerHTML: '<p style="color:var(--danger)">Erro ao carregar imagem</p>' }));
+    };
+    body.appendChild(el('div', { className: 'fm-preview-center' }, [img]));
+
+  } else if (fileType === 'video') {
+    body.innerHTML = '';
+    body.appendChild(el('div', { className: 'fm-preview-center' }, [
+      el('video', { src: downloadUrl, controls: 'true', className: 'fm-preview-media', autoplay: 'true' }),
+    ]));
+
+  } else if (fileType === 'audio') {
+    body.innerHTML = '';
+    body.appendChild(el('div', { className: 'fm-preview-center' }, [
+      el('audio', { src: downloadUrl, controls: 'true', style: { width: '80%', maxWidth: '500px' } }),
+    ]));
+
+  } else if (fileType === 'pdf') {
+    body.innerHTML = '';
+    body.appendChild(el('iframe', {
+      src: downloadUrl,
+      className: 'fm-preview-pdf',
+    }));
+
+  } else if (fileType === 'text' || (fileType === 'unknown' && fileSize < 500000)) {
+    // Text: load content and show code viewer
+    try {
+      const data = await API.readFile(filePath);
+      fileContent = data.content;
+      editBtn.style.display = '';
+      showTextViewer();
+    } catch (err) {
+      body.innerHTML = '';
+      body.appendChild(el('div', { className: 'empty-state', innerHTML: `<p style="color:var(--danger)">Erro: ${err.message}</p>` }));
+    }
+  } else {
+    // Unknown binary
+    body.innerHTML = '';
+    body.appendChild(el('div', { className: 'empty-state', innerHTML: `
+      <p style="font-size:48px;margin-bottom:12px">📄</p>
+      <p><b>${fileName}</b></p>
+      <p style="margin-top:8px">${fileSize ? formatFileSize(fileSize) : ''}</p>
+      <p style="margin-top:16px;color:var(--text-muted)">Visualizacao nao disponivel para este tipo de arquivo.</p>
+    ` }));
+  }
+
+  function showTextViewer() {
+    body.innerHTML = '';
+    editBtn.style.display = '';
+    saveBtn.style.display = 'none';
+    cancelBtn.style.display = 'none';
+
+    const pre = el('pre', { className: 'fm-code-view' });
+    const lineNums = el('div', { className: 'fm-line-numbers' });
+    const lines = fileContent.split('\n');
+    for (let i = 1; i <= lines.length; i++) {
+      lineNums.appendChild(el('div', { textContent: String(i) }));
+    }
+    pre.appendChild(lineNums);
+    pre.appendChild(el('code', { textContent: fileContent }));
+    body.appendChild(pre);
+  }
+
+  function showTextEditor() {
+    body.innerHTML = '';
+    editBtn.style.display = 'none';
+    saveBtn.style.display = '';
+    cancelBtn.style.display = '';
+
+    const textarea = el('textarea', { className: 'fm-code-editor' });
+    textarea.value = fileContent;
+    body.appendChild(textarea);
+    textarea.focus();
+
+    textarea.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 's') {
+        e.preventDefault();
+        doSave(textarea);
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        const s = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        textarea.value = textarea.value.substring(0, s) + '  ' + textarea.value.substring(end);
+        textarea.selectionStart = textarea.selectionEnd = s + 2;
+      }
+    });
+  }
+
+  async function doSave(textarea) {
+    const content = textarea.value;
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Salvando...';
+    try {
+      await API.writeFile(filePath, content);
+      fileContent = content;
+      showToast('Arquivo salvo!');
+      showTextViewer();
+    } catch (err) {
+      showToast('Erro ao salvar: ' + err.message, 'error');
+    }
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Salvar';
+  }
+
+  editBtn.onclick = () => showTextEditor();
+  cancelBtn.onclick = () => showTextViewer();
+  saveBtn.onclick = () => { const ta = body.querySelector('textarea'); if (ta) doSave(ta); };
+}
+
+async function renderFileManagerPage(container) {
+  container.innerHTML = '';
+
+  const header = el('div', { className: 'page-title' }, [
+    el('span', { textContent: 'Arquivos' }),
+    el('div', { style: { display: 'flex', gap: '8px' } }, [
+      el('button', {
+        className: 'btn btn-sm',
+        textContent: 'Nova Pasta',
+        onClick: () => showCreateDirModal(container),
+      }),
+      el('button', {
+        className: 'btn btn-primary btn-sm',
+        textContent: 'Upload',
+        onClick: () => triggerFileUpload(container),
+      }),
+    ]),
+  ]);
+  container.appendChild(header);
+  container.appendChild(renderBreadcrumbs(_fmCurrentPath, container));
+
+  const fileArea = el('div', { id: 'fm-file-area' });
+  container.appendChild(fileArea);
+
+  setupDragDrop(container);
+  await loadDirectory(_fmCurrentPath, container);
 }
 
 // ═══════════════════════════════════════════
@@ -832,47 +1133,58 @@ function renderGitHubCLIStatus(container, statusCard, status) {
     ]));
 
     statusCard.appendChild(el('p', {
-      textContent: 'O GitHub CLI esta instalado mas voce precisa autenticar. Siga os passos abaixo:',
+      textContent: 'O GitHub CLI esta instalado. Clique abaixo para abrir o terminal de autenticacao interativo.',
       style: { fontSize: '14px', marginBottom: '16px' },
     }));
 
-    // Step-by-step instructions
-    const steps = el('div', { className: 'steps-list' });
+    const authBtn = el('button', {
+      className: 'btn btn-primary',
+      textContent: 'Autenticar com GitHub',
+      onClick: async () => {
+        authBtn.disabled = true;
+        authBtn.textContent = 'Abrindo terminal...';
+        try {
+          const result = await API.startGitHubCLIAuth();
+          // Open the terminal overlay with this interactive session
+          TerminalManager.open(result.sessionId);
+          document.getElementById('terminal-title').textContent = 'gh auth login';
 
-    steps.appendChild(renderCLIStep('1', 'Acesse o terminal da maquina via SSH', el('div', {}, [
-      el('p', { textContent: 'Conecte via SSH ou abra um terminal no servidor:', style: { fontSize: '13px', marginBottom: '8px' } }),
-      renderCopyBlock('ssh root@<IP-DO-SERVIDOR>'),
-    ])));
+          // When terminal exits, check auth status and refresh page
+          const onExit = (msg) => {
+            if (msg.sessionId === result.sessionId) {
+              API.off('terminal:exit', onExit);
+              setTimeout(async () => {
+                const newStatus = await API.getGitHubCLIStatus();
+                if (newStatus.authenticated) {
+                  showToast('Autenticado como @' + newStatus.user + '!');
+                }
+                // Re-render page when user comes back
+                renderGitHubCLIStatus(container, statusCard, newStatus);
+              }, 500);
+            }
+          };
+          API.on('terminal:exit', onExit);
+        } catch (err) {
+          showToast('Erro: ' + err.message, 'error');
+        }
+        authBtn.textContent = 'Autenticar com GitHub';
+        authBtn.disabled = false;
+      },
+    });
 
-    steps.appendChild(renderCLIStep('2', 'Execute o comando de autenticacao', el('div', {}, [
-      el('p', { textContent: 'No terminal, execute:', style: { fontSize: '13px', marginBottom: '8px' } }),
-      renderCopyBlock('gh auth login'),
-    ])));
-
-    steps.appendChild(renderCLIStep('3', 'Siga o fluxo interativo', el('div', {}, [
-      el('p', { innerHTML: '&bull; Escolha <b>GitHub.com</b>', style: { fontSize: '13px' } }),
-      el('p', { innerHTML: '&bull; Protocolo: <b>HTTPS</b>', style: { fontSize: '13px' } }),
-      el('p', { innerHTML: '&bull; Autenticar com: <b>Login with a web browser</b> ou <b>Paste an authentication token</b>', style: { fontSize: '13px' } }),
-      el('p', { innerHTML: '&bull; Se usar browser, copie o codigo e abra o link mostrado', style: { fontSize: '13px' } }),
-    ])));
-
-    steps.appendChild(renderCLIStep('4', 'Volte aqui e verifique', el('div', {}, [
-      el('p', { textContent: 'Apos autenticar, clique no botao abaixo:', style: { fontSize: '13px' } }),
-    ])));
-
-    statusCard.appendChild(steps);
+    statusCard.appendChild(authBtn);
 
     statusCard.appendChild(el('button', {
-      className: 'btn btn-primary',
+      className: 'btn',
       textContent: 'Verificar Autenticacao',
-      style: { marginTop: '12px' },
+      style: { marginLeft: '8px' },
       onClick: async () => {
         try {
           const newStatus = await API.getGitHubCLIStatus();
           if (newStatus.authenticated) {
             showToast('Autenticado com sucesso!');
           } else {
-            showToast('Ainda nao autenticado. Execute gh auth login no terminal.', 'error');
+            showToast('Ainda nao autenticado.', 'error');
           }
           renderGitHubCLIStatus(container, statusCard, newStatus);
         } catch (err) {

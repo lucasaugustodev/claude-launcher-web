@@ -55,6 +55,26 @@ const TerminalManager = {
       API.resizeTerminal(sessionId, this._term.cols, this._term.rows);
     }, 100);
 
+    // Intercept Ctrl+C: copy to clipboard when text is selected, otherwise send SIGINT
+    this._term.attachCustomKeyEventHandler((e) => {
+      if (e.type === 'keydown' && e.ctrlKey && e.key === 'c') {
+        const selection = this._term.getSelection();
+        if (selection) {
+          navigator.clipboard.writeText(selection).catch(() => {});
+          this._term.clearSelection();
+          return false; // prevent sending to PTY
+        }
+      }
+      // Ctrl+V: paste from clipboard
+      if (e.type === 'keydown' && e.ctrlKey && e.key === 'v') {
+        navigator.clipboard.readText().then(text => {
+          if (text) API.sendInput(sessionId, text);
+        }).catch(() => {});
+        return false;
+      }
+      return true;
+    });
+
     // Handle user input -> send to PTY
     this._term.onData((data) => {
       API.sendInput(sessionId, data);

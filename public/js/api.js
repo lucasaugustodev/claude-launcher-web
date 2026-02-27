@@ -197,11 +197,58 @@ const API = {
     return result;
   },
 
+  startGitHubCLIAuth() {
+    return this.fetch('/api/github-cli/auth', { method: 'POST' });
+  },
+
   cloneWithGitHubCLI(repo, destDir) {
     return this.fetch('/api/github-cli/clone', {
       method: 'POST',
       body: JSON.stringify({ repo, destDir: destDir || undefined }),
     });
+  },
+
+  // ─── File Manager ───
+
+  listFiles(dirPath) {
+    return this.fetch('/api/files?path=' + encodeURIComponent(dirPath));
+  },
+
+  createDirectory(dirPath) {
+    return this.fetch('/api/files/mkdir', { method: 'POST', body: JSON.stringify({ path: dirPath }) });
+  },
+
+  deleteFile(filePath) {
+    return this.fetch('/api/files/delete', { method: 'POST', body: JSON.stringify({ path: filePath }) });
+  },
+
+  readFile(filePath) {
+    return this.fetch('/api/files/read?path=' + encodeURIComponent(filePath));
+  },
+
+  writeFile(filePath, content) {
+    return this.fetch('/api/files/write', { method: 'POST', body: JSON.stringify({ path: filePath, content }) });
+  },
+
+  getDownloadUrl(filePath) {
+    return '/api/files/download?path=' + encodeURIComponent(filePath) + '&token=' + encodeURIComponent(this._token);
+  },
+
+  async uploadFiles(dirPath, files) {
+    const formData = new FormData();
+    formData.append('path', dirPath);
+    for (const file of files) {
+      formData.append('files', file);
+    }
+    const headers = {};
+    if (this._token) headers['Authorization'] = 'Bearer ' + this._token;
+    const res = await fetch('/api/files/upload', { method: 'POST', headers, body: formData });
+    if (res.status === 401) { this.setToken(null); location.reload(); throw new Error('Unauthorized'); }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `HTTP ${res.status}`);
+    }
+    return res.json();
   },
 
   // ─── WebSocket ───
