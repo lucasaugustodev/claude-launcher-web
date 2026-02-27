@@ -240,6 +240,9 @@
     try {
       const status = await API.checkAuthStatus();
 
+      // Store server environment info for path suggestions
+      if (status.env) API.serverEnv = status.env;
+
       if (status.needsSetup) {
         showSetup();
       } else if (status.loggedIn) {

@@ -1190,6 +1190,12 @@ function renderGitHubCLIStatus(container, statusCard, status) {
       return input.split('/').pop().replace(/\.git$/, '') || input;
     }
 
+    // Build paths based on server OS
+    const _env = API.serverEnv || {};
+    const _sep = _env.sep || '/';
+    const _home = _env.homeDir || '/root';
+    function _joinPath(base, name) { return base + _sep + name; }
+
     const repoInput = el('input', {
       type: 'text',
       placeholder: 'Buscar, digitar owner/repo ou colar URL do GitHub...',
@@ -1291,7 +1297,7 @@ function renderGitHubCLIStatus(container, statusCard, status) {
           repoDropdown.style.display = 'none';
           // Auto-fill destination directory
           if (!destInput.value.trim()) {
-            destInput.value = `C:\\Users\\PC\\Documents\\${repoName}`;
+            destInput.value = _joinPath(_home, repoName);
           }
         });
 
@@ -1311,7 +1317,7 @@ function renderGitHubCLIStatus(container, statusCard, status) {
       if (val.startsWith('http://') || val.startsWith('https://') || val.startsWith('git@')) {
         repoDropdown.style.display = 'none';
         if (!destInput.value.trim()) {
-          destInput.value = `C:\\Users\\PC\\Documents\\${extractRepoName(val)}`;
+          destInput.value = _joinPath(_home, extractRepoName(val));
         }
         return;
       }
@@ -1326,16 +1332,20 @@ function renderGitHubCLIStatus(container, statusCard, status) {
     // ─── Destination directory with quick-pick buttons ───
     const destInput = el('input', {
       type: 'text',
-      placeholder: 'Diretorio destino (ex: C:\\Users\\PC\\Documents\\repo)',
+      placeholder: `Diretorio destino (ex: ${_joinPath(_home, 'repo')})`,
       style: { marginBottom: '4px' },
     });
 
     const destShortcuts = el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' } });
 
-    const basePaths = [
-      { label: 'Documents', path: 'C:\\Users\\PC\\Documents' },
-      { label: 'Desktop', path: 'C:\\Users\\PC\\Desktop' },
-      { label: 'Projetos', path: 'C:\\Users\\PC\\projetos' },
+    const basePaths = _env.platform === 'win32' ? [
+      { label: 'Documents', path: _joinPath(_home, 'Documents') },
+      { label: 'Desktop', path: _joinPath(_home, 'Desktop') },
+      { label: 'Projetos', path: _joinPath(_home, 'projetos') },
+    ] : [
+      { label: 'Home', path: _home },
+      { label: '/opt', path: '/opt' },
+      { label: '/srv', path: '/srv' },
     ];
 
     for (const bp of basePaths) {
@@ -1346,7 +1356,7 @@ function renderGitHubCLIStatus(container, statusCard, status) {
         onClick: () => {
           const repo = _selectedRepo || repoInput.value.trim();
           const repoName = repo ? extractRepoName(repo) : '';
-          destInput.value = repoName ? `${bp.path}\\${repoName}` : bp.path;
+          destInput.value = repoName ? _joinPath(bp.path, repoName) : bp.path;
         },
       }));
     }

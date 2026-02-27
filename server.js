@@ -88,7 +88,16 @@ app.get('/api/auth/status', (req, res) => {
   if (authHeader && authHeader.startsWith('Bearer ')) {
     loggedIn = activeSessions.has(authHeader.slice(7));
   }
-  res.json({ needsSetup, loggedIn });
+  const os = require('os');
+  res.json({
+    needsSetup,
+    loggedIn,
+    env: {
+      platform: process.platform,
+      homeDir: os.homedir(),
+      sep: path.sep,
+    },
+  });
 });
 
 app.post('/api/auth/setup', (req, res) => {
@@ -632,8 +641,9 @@ app.post('/api/github-cli/clone', async (req, res) => {
   const { repo, destDir } = req.body;
   if (!repo) return res.status(400).json({ error: 'repo is required (e.g. owner/repo-name)' });
 
+  const os = require('os');
   const repoName = repo.split('/').pop().replace(/\.git$/, '') || repo;
-  const dest = destDir || `C:\\Users\\PC\\Documents\\${repoName}`;
+  const dest = destDir || path.join(os.homedir(), repoName);
 
   try {
     const result = await githubCli.cloneRepo(repo, dest);
