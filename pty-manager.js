@@ -109,8 +109,9 @@ function buildClaudeCommand(extraFlags, initialPrompt) {
   return { shell: '/bin/bash', args: ['-c', cmd] };
 }
 
-// Spawn a Claude PTY process and wire up output/exit handlers
-function spawnSession(sessionId, shellAndArgs, cwd, env) {
+// Spawn a PTY process and wire up output/exit handlers
+// sessionUpdater: optional function(id, updates) for storage updates on exit (default: storage.updateSession)
+function spawnSession(sessionId, shellAndArgs, cwd, env, sessionUpdater) {
   const { shell, args } = shellAndArgs;
 
   console.log(`[SESSION] Launching: shell=${shell}, args=${JSON.stringify(args)}, cwd=${cwd}`);
@@ -160,30 +161,32 @@ function spawnSession(sessionId, shellAndArgs, cwd, env) {
     const startMs = new Date(handle.startedAt).getTime();
     const duration = Math.round((Date.now() - startMs) / 1000);
 
-    storage.updateSession(sessionId, {
+    const updateFn = sessionUpdater || storage.updateSession;
+    updateFn(sessionId, {
       status: exitCode === 0 ? 'completed' : 'crashed',
       endedAt,
       durationSeconds: duration,
       exitCode,
     });
 
-    // Stop git watcher (commits final changes + creates PR if branch strategy)
-    gitWatcher.stopWatching(sessionId).then(result => {
-      if (result) {
-        console.log(`[WATCHER] Session ${sessionId}: ${result.commitCount} commits`);
-        if (result.prUrl) {
-          _broadcast({ type: 'watcher-pr', sessionId, prUrl: result.prUrl });
-          storage.updateSession(sessionId, { prUrl: result.prUrl });
+    // Git watcher / GitHub sync only for Claude Code sessions (not Cline)
+    if (!sessionUpdater) {
+      gitWatcher.stopWatching(sessionId).then(result => {
+        if (result) {
+          console.log(`[WATCHER] Session ${sessionId}: ${result.commitCount} commits`);
+          if (result.prUrl) {
+            _broadcast({ type: 'watcher-pr', sessionId, prUrl: result.prUrl });
+            storage.updateSession(sessionId, { prUrl: result.prUrl });
+          }
         }
-      }
-    }).catch(err => {
-      console.error(`[WATCHER] Stop failed for ${sessionId}:`, err.message);
-    });
+      }).catch(err => {
+        console.error(`[WATCHER] Stop failed for ${sessionId}:`, err.message);
+      });
 
-    // GitHub output sync (fire-and-forget)
-    githubSync.syncSession(sessionId).catch(err => {
-      console.error(`[GITHUB] Sync failed for ${sessionId}:`, err.message);
-    });
+      githubSync.syncSession(sessionId).catch(err => {
+        console.error(`[GITHUB] Sync failed for ${sessionId}:`, err.message);
+      });
+    }
 
     setTimeout(() => handles.delete(sessionId), 5000);
   });
@@ -401,8 +404,13 @@ function removeListener(sessionId, sendFn) {
 
 function stopAll() {
   let count = 0;
-  for (const [id] of handles) {
-    if (stopSession(id)) count++;
+  for (const [id, handle] of handles) {
+    if (handle.exited) continue;
+    if (handle.type === 'cline') {
+      if (stopClineSession(id)) count++;
+    } else {
+      if (stopSession(id)) count++;
+    }
   }
   return count;
 }
@@ -423,7 +431,97 @@ function cleanupOrphaned() {
   return cleaned;
 }
 
-// Spawn an interactive command in a PTY (for gh auth login, etc.)
+// ─── Cline CLI Sessions ───
+
+function launchClineSession({ prompt, workingDirectory } = {}) {
+  const sessionId = uuid();
+  const cwd = workingDirectory || process.cwd();
+  const env = { ...process.env, TERM: 'xterm-256color', FORCE_COLOR: '1' };
+
+  let shell, args;
+  if (process.platform === 'win32') {
+    shell = 'cmd.exe';
+    args = prompt ? ['/c', 'cline', prompt] : ['/c', 'cline'];
+  } else {
+    shell = 'cline';
+    args = prompt ? [prompt] : [];
+  }
+
+  console.log(`[CLINE] Launching session: cwd=${cwd}, prompt=${prompt ? prompt.slice(0, 60) : '(interactive)'}`);
+
+  const handle = spawnSession(sessionId, { shell, args }, cwd, env, storage.updateClineSession.bind(storage));
+  handle.type = 'cline';
+
+  const session = {
+    id: sessionId,
+    prompt: prompt || null,
+    workingDirectory: cwd,
+    startedAt: handle.startedAt,
+    endedAt: null,
+    durationSeconds: null,
+    exitCode: null,
+    status: 'running',
+    pid: handle.pid,
+  };
+
+  storage.addClineSession(session);
+  return session;
+}
+
+function stopClineSession(sessionId) {
+  const handle = handles.get(sessionId);
+  if (!handle || handle.exited) return false;
+
+  try {
+    handle.pty.kill();
+  } catch {
+    try {
+      const { execSync } = require('child_process');
+      execSync(`taskkill /F /T /PID ${handle.pid}`, { stdio: 'ignore' });
+    } catch {}
+  }
+
+  storage.updateClineSession(sessionId, {
+    status: 'stopped',
+    endedAt: new Date().toISOString(),
+    durationSeconds: Math.round((Date.now() - new Date(handle.startedAt).getTime()) / 1000),
+  });
+
+  return true;
+}
+
+function getActiveClineSessions() {
+  const clineSessions = storage.getClineSessions().filter(s => s.status === 'running');
+  const active = [];
+  for (const s of clineSessions) {
+    const handle = handles.get(s.id);
+    if (handle && !handle.exited) {
+      const startMs = new Date(handle.startedAt).getTime();
+      active.push({
+        ...s,
+        elapsedSeconds: Math.round((Date.now() - startMs) / 1000),
+      });
+    }
+  }
+  return active;
+}
+
+function cleanupOrphanedCline() {
+  const sessions = storage.getClineSessions();
+  let cleaned = 0;
+  for (const s of sessions) {
+    if (s.status === 'running' && !handles.has(s.id)) {
+      storage.updateClineSession(s.id, {
+        status: 'stopped',
+        endedAt: new Date().toISOString(),
+      });
+      cleaned++;
+    }
+  }
+  return cleaned;
+}
+
+// Spawn an interactive command in a PTY (for gh auth login, cline auth, etc.)
 function spawnInteractive(command, args = [], cwd) {
   const sessionId = uuid();
   const env = { ...process.env, TERM: 'xterm-256color', FORCE_COLOR: '1' };
@@ -441,4 +539,5 @@ module.exports = {
   getActiveSessions, getSessionOutput,
   addListener, removeListener, stopAll, cleanupOrphaned,
   setBroadcast, spawnInteractive,
+  launchClineSession, stopClineSession, getActiveClineSessions, cleanupOrphanedCline,
 };

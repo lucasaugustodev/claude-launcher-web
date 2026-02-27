@@ -216,6 +216,73 @@ const API = {
     });
   },
 
+  // ─── Cline CLI ───
+
+  getClineCLIStatus() {
+    return this.fetch('api/cline-cli/status');
+  },
+
+  async installClineCLI(onProgress) {
+    const headers = {};
+    if (this._token) headers['Authorization'] = 'Bearer ' + this._token;
+
+    const res = await fetch(_url('api/cline-cli/install'), { method: 'POST', headers });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let result = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value);
+      const lines = text.split('\n').filter(l => l.startsWith('data: '));
+      for (const line of lines) {
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.type === 'progress' && onProgress) onProgress(data.text);
+          if (data.type === 'done') result = data;
+          if (data.type === 'error') throw new Error(data.message);
+        } catch (e) {
+          if (e.message && e.message.startsWith('Installation')) throw e;
+        }
+      }
+    }
+    return result;
+  },
+
+  startClineCLIAuth() {
+    return this.fetch('api/cline-cli/auth', { method: 'POST' });
+  },
+
+  // ─── Cline Sessions ───
+
+  getActiveClineSessions() {
+    return this.fetch('api/cline-sessions');
+  },
+
+  getClineSessionHistory() {
+    return this.fetch('api/cline-sessions/history');
+  },
+
+  launchClineSession(prompt, workingDirectory) {
+    return this.fetch('api/cline-sessions/launch', {
+      method: 'POST',
+      body: JSON.stringify({ prompt: prompt || undefined, workingDirectory: workingDirectory || undefined }),
+    });
+  },
+
+  stopClineSession(id) {
+    return this.fetch(`api/cline-sessions/${id}/stop`, { method: 'POST' });
+  },
+
+  getClineSessionOutput(id) {
+    return this.fetch(`api/cline-sessions/${id}/output`);
+  },
+
+  clearClineHistory() {
+    return this.fetch('api/cline-sessions/history', { method: 'DELETE' });
+  },
+
   // ─── File Manager ───
 
   listFiles(dirPath) {

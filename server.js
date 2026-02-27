@@ -8,6 +8,7 @@ const ptyManager = require('./pty-manager');
 const githubSync = require('./github-sync');
 const gitWatcher = require('./git-watcher');
 const githubCli = require('./github-cli');
+const clineCli = require('./cline-cli');
 const multer = require('multer');
 const fs = require('fs');
 const { execFile } = require('child_process');
@@ -158,6 +159,8 @@ app.use('/api/profiles', checkToken);
 app.use('/api/sessions', checkToken);
 app.use('/api/github', checkToken);
 app.use('/api/github-cli', checkToken);
+app.use('/api/cline-cli', checkToken);
+app.use('/api/cline-sessions', checkToken);
 
 // ─── File Manager Security ───
 
@@ -653,6 +656,81 @@ app.post('/api/github-cli/clone', async (req, res) => {
   }
 });
 
+// ─── Cline CLI API ───
+
+app.get('/api/cline-cli/status', async (req, res) => {
+  try {
+    const status = await clineCli.getStatus();
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/cline-cli/install', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  try {
+    await clineCli.install((text) => {
+      res.write(`data: ${JSON.stringify({ type: 'progress', text })}\n\n`);
+    });
+    const status = await clineCli.getStatus();
+    res.write(`data: ${JSON.stringify({ type: 'done', ...status })}\n\n`);
+  } catch (err) {
+    res.write(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);
+  }
+  res.end();
+});
+
+app.post('/api/cline-cli/auth', (req, res) => {
+  try {
+    const session = ptyManager.spawnInteractive('cline', ['auth'], process.cwd());
+    res.json({ sessionId: session.id, pid: session.pid });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Cline Sessions API ───
+
+app.get('/api/cline-sessions', (req, res) => {
+  res.json(ptyManager.getActiveClineSessions());
+});
+
+app.get('/api/cline-sessions/history', (req, res) => {
+  res.json(storage.getClineSessions());
+});
+
+app.post('/api/cline-sessions/launch', (req, res) => {
+  const { prompt, workingDirectory } = req.body;
+
+  try {
+    const session = ptyManager.launchClineSession({ prompt, workingDirectory });
+    res.status(201).json(session);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/cline-sessions/:id/stop', (req, res) => {
+  const stopped = ptyManager.stopClineSession(req.params.id);
+  if (!stopped) return res.status(404).json({ error: 'Session not found or already stopped' });
+  res.json({ ok: true });
+});
+
+app.get('/api/cline-sessions/:id/output', (req, res) => {
+  const output = ptyManager.getSessionOutput(req.params.id);
+  res.json({ output });
+});
+
+app.delete('/api/cline-sessions/history', (req, res) => {
+  storage.clearClineHistory();
+  res.json({ ok: true });
+});
+
 // ─── WebSocket Server ───
 
 const wss = new WebSocketServer({ server, path: '/ws' });
@@ -747,6 +825,11 @@ ptyManager.setBroadcast(broadcastToAll);
 const cleaned = ptyManager.cleanupOrphaned();
 if (cleaned > 0) {
   console.log(`Cleaned ${cleaned} orphaned sessions`);
+}
+
+const cleanedCline = ptyManager.cleanupOrphanedCline();
+if (cleanedCline > 0) {
+  console.log(`Cleaned ${cleanedCline} orphaned Cline sessions`);
 }
 
 server.listen(PORT, '0.0.0.0', () => {

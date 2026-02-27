@@ -93,6 +93,41 @@ function clearHistory() {
   saveSessions(sessions);
 }
 
+// ─── Cline Sessions ───
+
+function getClineSessions() {
+  return readJSON('cline-sessions.json', []);
+}
+
+function saveClineSessions(sessions) {
+  writeJSON('cline-sessions.json', sessions);
+}
+
+function getClineSession(id) {
+  return getClineSessions().find(s => s.id === id) || null;
+}
+
+function addClineSession(session) {
+  const sessions = getClineSessions();
+  sessions.push(session);
+  saveClineSessions(sessions);
+  return session;
+}
+
+function updateClineSession(id, updates) {
+  const sessions = getClineSessions();
+  const idx = sessions.findIndex(s => s.id === id);
+  if (idx === -1) return null;
+  sessions[idx] = { ...sessions[idx], ...updates };
+  saveClineSessions(sessions);
+  return sessions[idx];
+}
+
+function clearClineHistory() {
+  const sessions = getClineSessions().filter(s => s.status === 'running');
+  saveClineSessions(sessions);
+}
+
 // ─── Users ───
 
 function getUsers() {
@@ -131,6 +166,7 @@ function saveGitHubConfig(config) {
 module.exports = {
   getProfiles, saveProfiles, getProfile, addProfile, updateProfile, deleteProfile,
   getSessions, saveSessions, getSession, addSession, updateSession, clearHistory,
+  getClineSessions, saveClineSessions, getClineSession, addClineSession, updateClineSession, clearClineHistory,
   getUsers, saveUsers, findUser, addUser, hasUsers,
   getGitHubConfig, saveGitHubConfig,
 };
