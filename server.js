@@ -619,6 +619,15 @@ app.post('/api/github-cli/auth', (req, res) => {
   }
 });
 
+app.get('/api/github-cli/repos', async (req, res) => {
+  try {
+    const repos = await githubCli.listRepos();
+    res.json({ repos });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/github-cli/clone', async (req, res) => {
   const { repo, destDir } = req.body;
   if (!repo) return res.status(400).json({ error: 'repo is required (e.g. owner/repo-name)' });

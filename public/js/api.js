@@ -201,6 +201,10 @@ const API = {
     return this.fetch('/api/github-cli/auth', { method: 'POST' });
   },
 
+  listGitHubCLIRepos() {
+    return this.fetch('/api/github-cli/repos');
+  },
+
   cloneWithGitHubCLI(repo, destDir) {
     return this.fetch('/api/github-cli/clone', {
       method: 'POST',
