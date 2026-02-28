@@ -522,7 +522,7 @@ async function updateActiveCount() {
 // File Manager Page
 // ═══════════════════════════════════════════
 
-let _fmCurrentPath = '/home';
+let _fmCurrentPath = (API.serverEnv && API.serverEnv.homeDir) || '/home';
 
 function formatFileSize(bytes) {
   if (bytes === 0) return '0 B';
@@ -544,21 +544,27 @@ function getFileIcon(filename) {
 }
 
 function renderBreadcrumbs(currentPath, container) {
-  const parts = currentPath.split('/').filter(Boolean);
+  const _isWin = API.serverEnv && API.serverEnv.platform === 'win32';
+  const _sep = _isWin ? '\\' : '/';
+  const parts = currentPath.split(/[/\\]/).filter(Boolean);
   const bc = el('div', { className: 'fm-breadcrumbs' });
 
+  // Root crumb: "/" on Linux, "C:\" on Windows
+  const rootPath = _isWin ? (currentPath.match(/^[A-Za-z]:\\/) || ['C:\\'])[0] : '/';
   bc.appendChild(el('span', {
     className: 'fm-crumb clickable',
-    textContent: '/',
-    onClick: () => { _fmCurrentPath = '/'; loadDirectory('/', container); },
+    textContent: rootPath,
+    onClick: () => { _fmCurrentPath = rootPath; loadDirectory(rootPath, container); },
   }));
 
-  let accumulated = '';
-  for (let i = 0; i < parts.length; i++) {
-    accumulated += '/' + parts[i];
+  let accumulated = _isWin ? rootPath.replace(/\\$/, '') : '';
+  const startIdx = _isWin && parts[0] && parts[0].match(/^[A-Za-z]:$/) ? 1 : 0;
+
+  for (let i = startIdx; i < parts.length; i++) {
+    accumulated += _sep + parts[i];
     const p = accumulated;
 
-    bc.appendChild(el('span', { className: 'fm-sep', textContent: ' / ' }));
+    bc.appendChild(el('span', { className: 'fm-sep', textContent: ' ' + _sep + ' ' }));
 
     if (i === parts.length - 1) {
       bc.appendChild(el('span', { className: 'fm-crumb current', textContent: parts[i] }));
@@ -713,7 +719,8 @@ function showCreateDirModal(container) {
           if (!name) { showToast('Nome obrigatorio', 'error'); return; }
           if (name.includes('/') || name.includes('\\')) { showToast('Nome invalido', 'error'); return; }
           try {
-            await API.createDirectory(_fmCurrentPath + '/' + name);
+            const sep = (API.serverEnv && API.serverEnv.sep) || '/';
+            await API.createDirectory(_fmCurrentPath + sep + name);
             showToast('Pasta criada!');
             overlay.remove();
             loadDirectory(_fmCurrentPath, container);

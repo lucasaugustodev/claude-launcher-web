@@ -179,7 +179,8 @@ function sanitizePath(requestedPath) {
 // ─── File Manager API ───
 
 app.get('/api/files', checkToken, async (req, res) => {
-  const dirPath = sanitizePath(req.query.path || '/home');
+  const defaultDir = process.platform === 'win32' ? os.homedir() : '/home';
+  const dirPath = sanitizePath(req.query.path || defaultDir);
 
   try {
     const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
