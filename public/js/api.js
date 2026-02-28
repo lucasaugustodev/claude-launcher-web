@@ -194,7 +194,7 @@ const API = {
           if (data.type === 'done') result = data;
           if (data.type === 'error') throw new Error(data.message);
         } catch (e) {
-          if (e.message !== data?.message) { /* ignore parse errors */ }
+          if (e.message && !e.message.includes('JSON')) throw e;
         }
       }
     }
@@ -243,7 +243,7 @@ const API = {
           if (data.type === 'done') result = data;
           if (data.type === 'error') throw new Error(data.message);
         } catch (e) {
-          if (e.message && e.message.startsWith('Installation')) throw e;
+          if (e.message && !e.message.includes('JSON')) throw e;
         }
       }
     }
