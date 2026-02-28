@@ -522,7 +522,7 @@ async function updateActiveCount() {
 // File Manager Page
 // ═══════════════════════════════════════════
 
-let _fmCurrentPath = (API.serverEnv && API.serverEnv.homeDir) || '/home';
+let _fmCurrentPath = null;
 
 function formatFileSize(bytes) {
   if (bytes === 0) return '0 B';
@@ -1012,6 +1012,9 @@ async function openFileViewer(filePath, fileSize) {
 }
 
 async function renderFileManagerPage(container) {
+  if (!_fmCurrentPath) {
+    _fmCurrentPath = (API.serverEnv && API.serverEnv.homeDir) || '/home';
+  }
   container.innerHTML = '';
 
   const header = el('div', { className: 'page-title' }, [
