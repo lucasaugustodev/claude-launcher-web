@@ -186,9 +186,10 @@ $size = [math]::Round((Get-Item $msiPath).Length / 1MB, 1)
 Write-Output ">>> Download completo: $size MB"
 
 Write-Output '>>> Instalando MSI...'
-$proc = Start-Process msiexec.exe -ArgumentList "/i `"$msiPath`" /qn /norestart" -Wait -PassThru -NoNewWindow
+$msiArgs = '/i "' + $msiPath + '" /qn /norestart'
+$proc = Start-Process msiexec.exe -ArgumentList $msiArgs -Wait -PassThru -NoNewWindow
 if ($proc.ExitCode -ne 0) {
-  throw "msiexec falhou com exit code $($proc.ExitCode)"
+  throw ('msiexec falhou com exit code ' + $proc.ExitCode)
 }
 Remove-Item $msiPath -Force -ErrorAction SilentlyContinue
 
