@@ -69,10 +69,12 @@ async function getStatus() {
 function install(onProgress) {
   return new Promise((resolve, reject) => {
     const isWin = process.platform === 'win32';
-    const cmd = isWin ? 'npm.cmd' : 'npm';
-    const args = ['install', '-g', 'cline'];
+    const isRoot = !isWin && process.getuid && process.getuid() === 0;
+    const needsSudo = !isWin && !isRoot;
+    const cmd = needsSudo ? 'sudo' : (isWin ? 'npm.cmd' : 'npm');
+    const args = needsSudo ? ['npm', 'install', '-g', 'cline'] : ['install', '-g', 'cline'];
 
-    if (onProgress) onProgress('>>> npm install -g cline\n');
+    if (onProgress) onProgress(needsSudo ? '>>> sudo npm install -g cline\n' : '>>> npm install -g cline\n');
 
     const proc = spawn(cmd, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
