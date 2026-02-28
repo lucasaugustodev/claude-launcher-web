@@ -15,7 +15,7 @@ function invalidateCache() {
 
 function checkInstalled() {
   return new Promise((resolve) => {
-    execFile('cline', ['--version'], { timeout: 3000, shell: true }, (err, stdout) => {
+    execFile('cline', ['--version'], { timeout: 15000, shell: true }, (err, stdout) => {
       if (err) return resolve({ installed: false, version: null });
       const output = (stdout || '').trim();
       const match = output.match(/([\d.]+)/);
@@ -28,7 +28,7 @@ function checkInstalled() {
 
 function checkAuth() {
   return new Promise((resolve) => {
-    execFile('cline', ['config'], { timeout: 3000, shell: true }, (err, stdout, stderr) => {
+    execFile('cline', ['config'], { timeout: 15000, shell: true }, (err, stdout, stderr) => {
       const output = ((stdout || '') + (stderr || '')).trim();
       if (err && !output) {
         return resolve({ configured: false, provider: null });
