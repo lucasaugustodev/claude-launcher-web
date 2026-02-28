@@ -1,5 +1,6 @@
 const pty = require('node-pty');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { v4: uuid } = require('uuid');
 const storage = require('./storage');
@@ -435,7 +436,14 @@ function cleanupOrphaned() {
 
 function launchClineSession({ prompt, workingDirectory } = {}) {
   const sessionId = uuid();
-  const cwd = workingDirectory || process.cwd();
+  let cwd = workingDirectory || process.cwd();
+  if (!fs.existsSync(cwd)) {
+    // Fallback to a known-good directory
+    const fallbacks = process.platform === 'win32'
+      ? ['C:\\Users\\Administrator', 'C:\\']
+      : [os.homedir(), '/tmp'];
+    cwd = fallbacks.find(d => fs.existsSync(d)) || process.cwd();
+  }
   const env = { ...process.env, TERM: 'xterm-256color', FORCE_COLOR: '1' };
 
   let shell, args;

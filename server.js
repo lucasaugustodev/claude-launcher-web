@@ -95,7 +95,15 @@ app.get('/api/auth/status', (req, res) => {
     loggedIn,
     env: {
       platform: process.platform,
-      homeDir: os.homedir(),
+      homeDir: (() => {
+        const home = os.homedir();
+        if (process.platform !== 'win32') return home;
+        // SYSTEM user has unusable homedir; find a real user dir
+        if (fs.existsSync(path.join(home, 'Desktop'))) return home;
+        const candidates = ['C:\\Users\\Administrator', 'C:\\Users\\Public'];
+        for (const c of candidates) { if (fs.existsSync(c)) return c; }
+        return 'C:\\';
+      })(),
       sep: path.sep,
     },
   });
