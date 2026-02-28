@@ -5,6 +5,9 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR" || exit 1
 
+# Ensure git trusts this directory (fixes ownership mismatch)
+git config --global --add safe.directory "$SCRIPT_DIR" 2>/dev/null
+
 LOG_FILE="$SCRIPT_DIR/data/update.log"
 mkdir -p "$SCRIPT_DIR/data"
 
