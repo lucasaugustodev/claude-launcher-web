@@ -687,6 +687,7 @@ app.post('/api/cline-cli/install', async (req, res) => {
 
 app.post('/api/cline-cli/auth', (req, res) => {
   try {
+    clineCli.invalidateCache();
     const session = ptyManager.spawnInteractive('cline', ['auth'], process.cwd());
     res.json({ sessionId: session.id, pid: session.pid });
   } catch (err) {
@@ -831,6 +832,11 @@ const cleanedCline = ptyManager.cleanupOrphanedCline();
 if (cleanedCline > 0) {
   console.log(`Cleaned ${cleanedCline} orphaned Cline sessions`);
 }
+
+// Pre-warm Cline CLI status cache so first tab visit is instant
+clineCli.getStatus().then(s => {
+  console.log(`[CLINE] Status cached: installed=${s.installed}, v=${s.version}, configured=${s.configured}`);
+}).catch(() => {});
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Claude Launcher Web running on http://0.0.0.0:${PORT}`);

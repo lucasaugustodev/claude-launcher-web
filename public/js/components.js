@@ -1454,3 +1454,486 @@ function renderCopyBlock(text) {
   ]);
   return block;
 }
+
+// ─── Cline CLI Page ───
+
+async function renderClineCliPage(container) {
+  container.innerHTML = '';
+  container.appendChild(el('h2', { textContent: 'Cline CLI' }));
+
+  const statusCard = el('div', {
+    className: 'card',
+    innerHTML: '<p style="color:var(--text-muted)">Verificando...</p>',
+  });
+  container.appendChild(statusCard);
+
+  try {
+    const status = await API.getClineCLIStatus();
+    renderClineCliStatus(container, statusCard, status);
+  } catch (err) {
+    statusCard.innerHTML = `<p style="color:var(--danger)">Erro ao verificar: ${err.message}</p>`;
+  }
+}
+
+function renderClineCliStatus(container, statusCard, status) {
+  statusCard.innerHTML = '';
+
+  if (!status.installed) {
+    // ─── State 1: Not installed ───
+    statusCard.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' } }, [
+      el('span', { className: 'status-tag status-crashed', textContent: 'Nao instalado' }),
+      el('span', { textContent: 'Cline CLI nao encontrado neste servidor', style: { color: 'var(--text-muted)', fontSize: '14px' } }),
+    ]));
+
+    statusCard.appendChild(el('p', {
+      textContent: 'Cline e uma ferramenta CLI para assistencia de codigo com IA. Requer Node.js 20+. Instale via npm:',
+      style: { fontSize: '14px', marginBottom: '12px' },
+    }));
+
+    statusCard.appendChild(renderCopyBlock('npm install -g cline'));
+
+    const installLog = el('pre', {
+      className: 'code-block',
+      style: { display: 'none', maxHeight: '300px', overflow: 'auto', marginTop: '12px' },
+    });
+
+    const installBtn = el('button', {
+      className: 'btn btn-primary',
+      textContent: 'Instalar Cline CLI',
+      style: { marginTop: '12px' },
+      onClick: async () => {
+        installBtn.disabled = true;
+        installBtn.textContent = 'Instalando...';
+        installLog.style.display = 'block';
+        installLog.textContent = '';
+
+        try {
+          await API.installClineCLI((text) => {
+            installLog.textContent += text;
+            installLog.scrollTop = installLog.scrollHeight;
+          });
+          showToast('Cline CLI instalado!');
+          const newStatus = await API.getClineCLIStatus();
+          renderClineCliStatus(container, statusCard, newStatus);
+        } catch (err) {
+          showToast('Falha na instalacao: ' + err.message, 'error');
+          installBtn.textContent = 'Tentar novamente';
+          installBtn.disabled = false;
+        }
+      },
+    });
+
+    statusCard.appendChild(installBtn);
+    statusCard.appendChild(installLog);
+
+  } else if (!status.configured) {
+    // ─── State 2: Installed but not configured ───
+    statusCard.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' } }, [
+      el('span', { className: 'status-tag status-stopped', textContent: 'Nao configurado' }),
+      el('span', { textContent: `Cline v${status.version} instalado`, style: { color: 'var(--text-muted)', fontSize: '14px' } }),
+    ]));
+
+    statusCard.appendChild(el('p', {
+      textContent: 'Cline esta instalado. Configure a autenticacao (provider + API key) para comecar.',
+      style: { fontSize: '14px', marginBottom: '16px' },
+    }));
+
+    const authBtn = el('button', {
+      className: 'btn btn-primary',
+      textContent: 'Configurar Autenticacao',
+      onClick: async () => {
+        authBtn.disabled = true;
+        authBtn.textContent = 'Abrindo terminal...';
+        try {
+          const result = await API.startClineCLIAuth();
+          TerminalManager.open(result.sessionId);
+          document.getElementById('terminal-title').textContent = 'cline auth';
+
+          const onExit = (msg) => {
+            if (msg.sessionId === result.sessionId) {
+              API.off('terminal:exit', onExit);
+              setTimeout(async () => {
+                const newStatus = await API.getClineCLIStatus();
+                if (newStatus.configured) {
+                  showToast('Cline configurado com sucesso!');
+                }
+                renderClineCliStatus(container, statusCard, newStatus);
+              }, 500);
+            }
+          };
+          API.on('terminal:exit', onExit);
+        } catch (err) {
+          showToast('Erro: ' + err.message, 'error');
+        }
+        authBtn.textContent = 'Configurar Autenticacao';
+        authBtn.disabled = false;
+      },
+    });
+
+    statusCard.appendChild(authBtn);
+
+    statusCard.appendChild(el('button', {
+      className: 'btn',
+      textContent: 'Verificar Configuracao',
+      style: { marginLeft: '8px' },
+      onClick: async () => {
+        try {
+          const newStatus = await API.getClineCLIStatus();
+          if (newStatus.configured) {
+            showToast('Cline configurado!');
+          } else {
+            showToast('Cline ainda nao configurado.', 'error');
+          }
+          renderClineCliStatus(container, statusCard, newStatus);
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      },
+    }));
+
+  } else {
+    // ─── State 3: Ready ───
+    statusCard.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' } }, [
+      el('span', { className: 'status-tag status-completed', textContent: 'Pronto' }),
+      el('span', {
+        textContent: `Cline v${status.version}${status.provider && status.provider !== 'configured' ? ' — ' + status.provider : ''}`,
+        style: { color: 'var(--text-muted)', fontSize: '14px' },
+      }),
+      el('button', {
+        className: 'btn btn-sm',
+        textContent: 'Reconfigurar',
+        style: { marginLeft: 'auto', fontSize: '11px' },
+        onClick: async () => {
+          try {
+            const result = await API.startClineCLIAuth();
+            TerminalManager.open(result.sessionId);
+            document.getElementById('terminal-title').textContent = 'cline auth';
+            const onExit = (msg) => {
+              if (msg.sessionId === result.sessionId) {
+                API.off('terminal:exit', onExit);
+                setTimeout(async () => {
+                  const newStatus = await API.getClineCLIStatus();
+                  renderClineCliStatus(container, statusCard, newStatus);
+                }, 500);
+              }
+            };
+            API.on('terminal:exit', onExit);
+          } catch (err) {
+            showToast('Erro: ' + err.message, 'error');
+          }
+        },
+      }),
+    ]));
+
+    // ─── New Session Button + Collapsible Form ───
+    const _env = API.serverEnv || {};
+    const _sep = _env.sep || '/';
+    const _home = _env.homeDir || '/root';
+    function _joinPath(base, name) { return base + _sep + name; }
+
+    const launchForm = el('div', { style: { display: 'none', marginTop: '12px' } });
+
+    const cwdInput = el('input', {
+      type: 'text',
+      placeholder: `Diretorio de trabalho (padrao: ${_home})`,
+      value: _home,
+    });
+
+    const cwdShortcuts = el('div', {
+      style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' },
+    });
+
+    const basePaths = _env.platform === 'win32' ? [
+      { label: 'Home', path: _home },
+      { label: 'Documents', path: _joinPath(_home, 'Documents') },
+      { label: 'Desktop', path: _joinPath(_home, 'Desktop') },
+    ] : [
+      { label: 'Home', path: _home },
+      { label: '/opt', path: '/opt' },
+      { label: '/srv', path: '/srv' },
+    ];
+
+    for (const bp of basePaths) {
+      cwdShortcuts.appendChild(el('button', {
+        className: 'btn btn-sm',
+        textContent: bp.label,
+        style: { fontSize: '11px', padding: '2px 8px', color: 'var(--text-muted)' },
+        onClick: () => { cwdInput.value = bp.path; },
+      }));
+    }
+
+    const promptInput = el('textarea', {
+      placeholder: 'Prompt inicial (opcional)',
+      style: { minHeight: '50px', resize: 'vertical' },
+    });
+
+    function launchCline(prompt) {
+      return async () => {
+        const btn = prompt ? launchWithPromptBtn : launchInteractiveBtn;
+        const origText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Iniciando...';
+        try {
+          const p = prompt ? promptInput.value.trim() : null;
+          if (prompt && !p) { showToast('Digite um prompt', 'error'); btn.disabled = false; btn.textContent = origText; return; }
+          const session = await API.launchClineSession(p, cwdInput.value.trim() || undefined);
+          showToast('Sessao Cline iniciada!');
+          launchForm.style.display = 'none';
+          newSessionBtn.style.display = '';
+          TerminalManager.open(session.id);
+          document.getElementById('terminal-title').textContent = `Cline — ${session.id.slice(0, 8)}`;
+          const onExit = (msg) => {
+            if (msg.sessionId === session.id) {
+              API.off('terminal:exit', onExit);
+              renderClineCliStatus(container, statusCard, status);
+            }
+          };
+          API.on('terminal:exit', onExit);
+        } catch (err) {
+          showToast('Erro: ' + err.message, 'error');
+        }
+        btn.textContent = origText;
+        btn.disabled = false;
+      };
+    }
+
+    const launchInteractiveBtn = el('button', {
+      className: 'btn btn-primary',
+      textContent: 'Iniciar Interativa',
+      onClick: launchCline(false),
+    });
+
+    const launchWithPromptBtn = el('button', {
+      className: 'btn btn-primary',
+      textContent: 'Iniciar com Prompt',
+      onClick: launchCline(true),
+    });
+
+    const cancelBtn = el('button', {
+      className: 'btn btn-sm',
+      textContent: 'Cancelar',
+      onClick: () => { launchForm.style.display = 'none'; newSessionBtn.style.display = ''; },
+    });
+
+    launchForm.appendChild(el('div', { className: 'form-group' }, [
+      el('label', { textContent: 'Diretorio de Trabalho' }),
+      cwdInput,
+      cwdShortcuts,
+    ]));
+
+    launchForm.appendChild(el('div', { className: 'form-group' }, [
+      el('label', { textContent: 'Prompt Inicial (opcional)' }),
+      promptInput,
+    ]));
+
+    launchForm.appendChild(el('div', {
+      style: { display: 'flex', gap: '8px', flexWrap: 'wrap' },
+    }, [launchInteractiveBtn, launchWithPromptBtn, cancelBtn]));
+
+    const newSessionBtn = el('button', {
+      className: 'btn btn-primary',
+      textContent: '+ Nova Sessao',
+      onClick: () => {
+        newSessionBtn.style.display = 'none';
+        launchForm.style.display = '';
+      },
+    });
+
+    statusCard.appendChild(newSessionBtn);
+    statusCard.appendChild(launchForm);
+
+    // ─── Active Cline Sessions ───
+    const activeSection = el('div', { style: { marginTop: '24px' } });
+    statusCard.appendChild(activeSection);
+    renderClineActiveSessions(activeSection, container, statusCard, status);
+
+    // ─── Session History ───
+    const historySection = el('div', { style: { marginTop: '24px' } });
+    statusCard.appendChild(historySection);
+    renderClineSessionHistory(historySection);
+  }
+}
+
+async function renderClineActiveSessions(section, container, statusCard, status) {
+  section.innerHTML = '';
+  section.appendChild(el('div', {
+    style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' },
+  }, [
+    el('h3', { textContent: 'Sessoes Ativas', style: { fontSize: '16px', margin: '0' } }),
+    el('button', {
+      className: 'btn btn-sm',
+      textContent: 'Atualizar',
+      onClick: () => renderClineActiveSessions(section, container, statusCard, status),
+    }),
+  ]));
+
+  try {
+    const sessions = await API.getActiveClineSessions();
+    if (sessions.length === 0) {
+      section.appendChild(el('p', {
+        textContent: 'Nenhuma sessao ativa.',
+        style: { color: 'var(--text-muted)', fontSize: '13px' },
+      }));
+      return;
+    }
+
+    for (const s of sessions) {
+      const elapsed = formatDuration(s.elapsedSeconds);
+      const card = el('div', {
+        style: {
+          background: 'var(--surface1)', borderRadius: '8px', padding: '12px 16px', marginBottom: '8px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        },
+      }, [
+        el('div', {}, [
+          el('span', {
+            textContent: `Sessao ${s.id.slice(0, 8)}`,
+            style: { fontWeight: '600', fontSize: '14px' },
+          }),
+          el('span', {
+            textContent: ` — PID ${s.pid} — ${elapsed}`,
+            style: { color: 'var(--text-muted)', fontSize: '12px', marginLeft: '8px' },
+          }),
+          ...(s.prompt ? [el('div', {
+            textContent: s.prompt.length > 80 ? s.prompt.slice(0, 80) + '...' : s.prompt,
+            style: { fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', fontStyle: 'italic' },
+          })] : []),
+        ]),
+        el('div', { style: { display: 'flex', gap: '8px' } }, [
+          el('button', {
+            className: 'btn btn-primary btn-sm',
+            textContent: 'Abrir Terminal',
+            onClick: () => {
+              TerminalManager.open(s.id);
+              document.getElementById('terminal-title').textContent = `Cline — ${s.id.slice(0, 8)}`;
+            },
+          }),
+          el('button', {
+            className: 'btn btn-danger btn-sm',
+            textContent: 'Parar',
+            onClick: async () => {
+              try {
+                await API.stopClineSession(s.id);
+                showToast('Sessao parada');
+                renderClineActiveSessions(section, container, statusCard, status);
+              } catch (err) {
+                showToast(err.message, 'error');
+              }
+            },
+          }),
+        ]),
+      ]);
+      section.appendChild(card);
+    }
+  } catch (err) {
+    section.appendChild(el('p', {
+      textContent: 'Erro: ' + err.message,
+      style: { color: 'var(--danger)', fontSize: '13px' },
+    }));
+  }
+}
+
+async function renderClineSessionHistory(section) {
+  section.innerHTML = '';
+  section.appendChild(el('div', {
+    style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' },
+  }, [
+    el('h3', { textContent: 'Historico', style: { fontSize: '16px', margin: '0' } }),
+    el('div', { style: { display: 'flex', gap: '8px' } }, [
+      el('button', {
+        className: 'btn btn-sm',
+        textContent: 'Atualizar',
+        onClick: () => renderClineSessionHistory(section),
+      }),
+      el('button', {
+        className: 'btn btn-danger btn-sm',
+        textContent: 'Limpar',
+        onClick: async () => {
+          if (!confirm('Limpar historico de sessoes Cline?')) return;
+          try {
+            await API.clearClineHistory();
+            showToast('Historico limpo');
+            renderClineSessionHistory(section);
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        },
+      }),
+    ]),
+  ]));
+
+  try {
+    const sessions = await API.getClineSessionHistory();
+    const history = sessions
+      .filter(s => s.status !== 'running')
+      .sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+
+    if (history.length === 0) {
+      section.appendChild(el('p', {
+        textContent: 'Nenhuma sessao no historico.',
+        style: { color: 'var(--text-muted)', fontSize: '13px' },
+      }));
+      return;
+    }
+
+    const tableContainer = el('div', { className: 'table-container' });
+    const table = el('table');
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th>Sessao</th>
+          <th>Prompt</th>
+          <th>Status</th>
+          <th>Inicio</th>
+          <th>Duracao</th>
+          <th>Acoes</th>
+        </tr>
+      </thead>
+    `;
+
+    const tbody = el('tbody');
+    for (const s of history) {
+      const tr = el('tr');
+      const statusClass = s.status || 'stopped';
+
+      tr.appendChild(el('td', { textContent: s.id.slice(0, 8) }));
+      tr.appendChild(el('td', {
+        textContent: s.prompt ? (s.prompt.length > 40 ? s.prompt.slice(0, 40) + '...' : s.prompt) : '(interativo)',
+        style: { color: s.prompt ? 'var(--text-primary)' : 'var(--text-muted)', fontStyle: s.prompt ? 'normal' : 'italic' },
+      }));
+      const tdStatus = el('td');
+      tdStatus.innerHTML = `<span class="status-tag ${statusClass}">${s.status || '-'}</span>`;
+      tr.appendChild(tdStatus);
+      tr.appendChild(el('td', { textContent: new Date(s.startedAt).toLocaleString() }));
+      tr.appendChild(el('td', { textContent: s.durationSeconds ? formatDuration(s.durationSeconds) : '-' }));
+
+      const tdActions = el('td', { className: 'history-actions' });
+      tdActions.appendChild(el('button', {
+        className: 'btn btn-sm',
+        textContent: 'Output',
+        onClick: async () => {
+          try {
+            const { output } = await API.getClineSessionOutput(s.id);
+            TerminalManager.openReadOnly(
+              `Cline — ${s.id.slice(0, 8)} (historico)`,
+              output,
+            );
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        },
+      }));
+      tr.appendChild(tdActions);
+      tbody.appendChild(tr);
+    }
+
+    table.appendChild(tbody);
+    tableContainer.appendChild(table);
+    section.appendChild(tableContainer);
+  } catch (err) {
+    section.appendChild(el('p', {
+      textContent: 'Erro: ' + err.message,
+      style: { color: 'var(--danger)', fontSize: '13px' },
+    }));
+  }
+}

@@ -1,10 +1,21 @@
 const { execFile, spawn } = require('child_process');
 
+// ─── Cache (avoids slow re-checks on every tab visit) ───
+
+let _cache = null;
+let _cacheTime = 0;
+const CACHE_TTL = 60000; // 1 minute
+
+function invalidateCache() {
+  _cache = null;
+  _cacheTime = 0;
+}
+
 // ─── Check if Cline CLI is installed ───
 
 function checkInstalled() {
   return new Promise((resolve) => {
-    execFile('cline', ['--version'], { timeout: 10000, shell: true }, (err, stdout, stderr) => {
+    execFile('cline', ['--version'], { timeout: 3000, shell: true }, (err, stdout) => {
       if (err) return resolve({ installed: false, version: null });
       const output = (stdout || '').trim();
       const match = output.match(/([\d.]+)/);
@@ -17,18 +28,15 @@ function checkInstalled() {
 
 function checkAuth() {
   return new Promise((resolve) => {
-    execFile('cline', ['config'], { timeout: 10000, shell: true }, (err, stdout, stderr) => {
+    execFile('cline', ['config'], { timeout: 3000, shell: true }, (err, stdout, stderr) => {
       const output = ((stdout || '') + (stderr || '')).trim();
       if (err && !output) {
         return resolve({ configured: false, provider: null });
       }
-      // cline config outputs current provider info when configured
       if (output.includes('provider') || output.includes('model') || output.includes('apiKey') || output.includes('api_key')) {
-        // Try to extract provider name
         const providerMatch = output.match(/provider[:\s]+["']?(\w+)/i);
         resolve({ configured: true, provider: providerMatch ? providerMatch[1] : 'configured' });
       } else if (output.length > 10) {
-        // If there's substantial output, likely configured
         resolve({ configured: true, provider: 'configured' });
       } else {
         resolve({ configured: false, provider: null });
@@ -37,15 +45,23 @@ function checkAuth() {
   });
 }
 
-// ─── Combined status ───
+// ─── Combined status (cached) ───
 
 async function getStatus() {
+  if (_cache && (Date.now() - _cacheTime) < CACHE_TTL) {
+    return _cache;
+  }
+
   const installed = await checkInstalled();
   if (!installed.installed) {
-    return { installed: false, version: null, configured: false, provider: null };
+    _cache = { installed: false, version: null, configured: false, provider: null };
+    _cacheTime = Date.now();
+    return _cache;
   }
   const auth = await checkAuth();
-  return { ...installed, ...auth };
+  _cache = { ...installed, ...auth };
+  _cacheTime = Date.now();
+  return _cache;
 }
 
 // ─── Install Cline CLI via npm ───
@@ -78,6 +94,7 @@ function install(onProgress) {
     });
 
     proc.on('close', (code) => {
+      invalidateCache();
       if (code === 0) {
         resolve({ success: true, output });
       } else {
@@ -91,4 +108,4 @@ function install(onProgress) {
   });
 }
 
-module.exports = { checkInstalled, checkAuth, getStatus, install };
+module.exports = { checkInstalled, checkAuth, getStatus, install, invalidateCache };
