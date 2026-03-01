@@ -584,11 +584,16 @@ function stopSession(sessionId) {
     }
   }
 
+  handle.exited = true;
+
   storage.updateSession(sessionId, {
     status: 'stopped',
     endedAt: new Date().toISOString(),
     durationSeconds: Math.round((Date.now() - new Date(handle.startedAt).getTime()) / 1000),
   });
+
+  // Notify attached clients
+  _broadcast({ type: 'exit', sessionId, code: null, reason: 'stopped' });
 
   // Stop git watcher
   gitWatcher.stopWatching(sessionId).then(result => {
