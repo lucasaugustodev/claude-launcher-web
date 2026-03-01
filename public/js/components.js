@@ -346,7 +346,7 @@ async function renderActivePage(container, guard) {
             try {
               await API.stopSession(s.id);
               showToast('Sessao parada');
-              renderActivePage(container);
+              // List auto-refreshes via terminal:exit WS event
               updateActiveCount();
             } catch (err) {
               showToast(err.message, 'error');

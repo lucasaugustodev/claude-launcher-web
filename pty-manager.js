@@ -186,18 +186,24 @@ function spawnSession(sessionId, shellAndArgs, cwd, env, sessionUpdater) {
 
   ptyProcess.onExit(({ exitCode }) => {
     if (handle.analyzer) handle.analyzer.destroy();
+
+    // Already handled by stopSession() - skip duplicate processing
+    if (handle.exited) return;
+
+    handle.exited = true;
+    handle.exitCode = exitCode;
+
     for (const send of handle.listeners) {
       try {
         send(JSON.stringify({ type: 'action', sessionId, action: { kind: 'session_ended', exitCode, timestamp: Date.now() } }));
       } catch {}
     }
 
-    handle.exited = true;
-    handle.exitCode = exitCode;
-
     for (const send of handle.listeners) {
       try { send(JSON.stringify({ type: 'exit', sessionId, exitCode })); } catch {}
     }
+
+    _broadcast({ type: 'exit', sessionId, exitCode });
 
     const endedAt = new Date().toISOString();
     const startMs = new Date(handle.startedAt).getTime();
@@ -315,12 +321,17 @@ function spawnStreamJsonSession(sessionId, cwd, env, extraFlags) {
   });
 
   child.on('close', (code) => {
+    // Already handled by stopSession() - skip duplicate processing
+    if (handle.exited) return;
+
     handle.exited = true;
     handle.exitCode = code;
 
     for (const send of handle.listeners) {
       try { send(JSON.stringify({ type: 'exit', sessionId, exitCode: code })); } catch {}
     }
+
+    _broadcast({ type: 'exit', sessionId, exitCode: code });
 
     const endedAt = new Date().toISOString();
     const startMs = new Date(handle.startedAt).getTime();
