@@ -166,6 +166,7 @@ function showProfileModal(profile = null, onSave) {
 
 async function renderProfilesPage(container, guard) {
   if (!guard) guard = () => true;
+  container.innerHTML = '';
 
   const header = el('div', { className: 'page-title' }, [
     el('span', { textContent: 'Projetos' }),
@@ -270,6 +271,7 @@ async function renderProfilesPage(container, guard) {
 
 async function renderActivePage(container, guard) {
   if (!guard) guard = () => true;
+  container.innerHTML = '';
 
   const header = el('div', { className: 'page-title' }, [
     el('span', { textContent: 'Sessoes Ativas' }),
@@ -345,6 +347,7 @@ let _historyFilter = 'all';
 
 async function renderHistoryPage(container, guard) {
   if (!guard) guard = () => true;
+  container.innerHTML = '';
 
   // Header with title + actions
   const header = el('div', { className: 'page-title' }, [
@@ -1023,6 +1026,7 @@ async function openFileViewer(filePath, fileSize) {
 
 async function renderFileManagerPage(container, guard) {
   if (!guard) guard = () => true;
+  container.innerHTML = '';
   if (!_fmCurrentPath) {
     _fmCurrentPath = (API.serverEnv && API.serverEnv.homeDir) || '/home';
   }
@@ -1058,6 +1062,7 @@ async function renderFileManagerPage(container, guard) {
 
 async function renderGitHubCLIPage(container, guard) {
   if (!guard) guard = () => true;
+  container.innerHTML = '';
   container.appendChild(el('h2', { textContent: 'GitHub CLI' }));
 
   const statusCard = el('div', { className: 'card', innerHTML: '<p style="color:var(--text-muted)">Verificando...</p>' });
@@ -1481,6 +1486,7 @@ function renderCopyBlock(text) {
 
 async function renderClineCliPage(container, guard) {
   if (!guard) guard = () => true;
+  container.innerHTML = '';
   container.appendChild(el('h2', { textContent: 'Cline CLI' }));
 
   const statusCard = el('div', {
@@ -1978,6 +1984,7 @@ const _agentColorMap = {
 
 async function renderClaudeAgentsPage(container, guard) {
   if (!guard) guard = () => true;
+  container.innerHTML = '';
 
   const header = el('div', { className: 'page-title' }, [
     el('span', { textContent: 'Agentes Claude Code' }),
@@ -2202,6 +2209,7 @@ async function showClaudeAgentDetailModal(agent) {
 
 async function renderAgentProfilesPage(container, guard) {
   if (!guard) guard = () => true;
+  container.innerHTML = '';
 
   const header = el('div', { className: 'page-title' }, [
     el('span', { textContent: 'Perfis de Agentes (APM)' }),
