@@ -3,6 +3,7 @@
 (function () {
   const content = document.getElementById('content');
   let currentPage = 'profiles';
+  let _navId = 0;
 
   // ─── Setup Screen (first access - no users exist) ───
 
@@ -125,20 +126,25 @@
 
   function navigate(page) {
     currentPage = page;
+    const myNavId = ++_navId;
 
     document.querySelectorAll('.nav-link').forEach(link => {
       link.classList.toggle('active', link.dataset.page === page);
     });
 
+    content.innerHTML = '';
+
+    const guard = () => _navId === myNavId;
+
     switch (page) {
-      case 'profiles': renderProfilesPage(content); break;
-      case 'active': renderActivePage(content); break;
-      case 'history': renderHistoryPage(content); break;
-      case 'files': renderFileManagerPage(content); break;
-      case 'github-cli': renderGitHubCLIPage(content); break;
-      case 'cline-cli': renderClineCliPage(content); break;
-      case 'claude-agents': renderClaudeAgentsPage(content); break;
-      case 'agent-profiles': renderAgentProfilesPage(content); break;
+      case 'profiles': renderProfilesPage(content, guard); break;
+      case 'active': renderActivePage(content, guard); break;
+      case 'history': renderHistoryPage(content, guard); break;
+      case 'files': renderFileManagerPage(content, guard); break;
+      case 'github-cli': renderGitHubCLIPage(content, guard); break;
+      case 'cline-cli': renderClineCliPage(content, guard); break;
+      case 'claude-agents': renderClaudeAgentsPage(content, guard); break;
+      case 'agent-profiles': renderAgentProfilesPage(content, guard); break;
     }
   }
 

@@ -39,7 +39,7 @@ function showProfileModal(profile = null, onSave) {
   const modal = el('div', { className: 'modal' });
 
   modal.innerHTML = `
-    <div class="modal-title">${isEdit ? 'Editar Perfil' : 'Novo Perfil'}</div>
+    <div class="modal-title">${isEdit ? 'Editar Projeto' : 'Novo Projeto'}</div>
     <div class="form-group">
       <label>Nome</label>
       <input type="text" id="pf-name" value="${profile?.name || ''}" placeholder="Ex: Projeto Principal">
@@ -164,19 +164,19 @@ function showProfileModal(profile = null, onSave) {
 
 // ─── Profiles Page ───
 
-async function renderProfilesPage(container) {
-  container.innerHTML = '';
+async function renderProfilesPage(container, guard) {
+  if (!guard) guard = () => true;
 
   const header = el('div', { className: 'page-title' }, [
-    el('span', { textContent: 'Perfis' }),
+    el('span', { textContent: 'Projetos' }),
     el('button', {
       className: 'btn btn-primary',
-      textContent: '+ Novo Perfil',
+      textContent: '+ Novo Projeto',
       onClick: () => {
         showProfileModal(null, async (data) => {
           try {
             await API.createProfile(data);
-            showToast('Perfil criado!');
+            showToast('Projeto criado!');
             renderProfilesPage(container);
           } catch (err) {
             showToast(err.message, 'error');
@@ -191,12 +191,14 @@ async function renderProfilesPage(container) {
   try {
     profiles = await API.getProfiles();
   } catch (err) {
+    if (!guard()) return;
     container.appendChild(el('div', { className: 'empty-state', innerHTML: `<p>Erro: ${err.message}</p>` }));
     return;
   }
+  if (!guard()) return;
 
   if (profiles.length === 0) {
-    container.appendChild(el('div', { className: 'empty-state', innerHTML: '<p>Nenhum perfil criado.<br>Crie um perfil para lancar sessoes do Claude.</p>' }));
+    container.appendChild(el('div', { className: 'empty-state', innerHTML: '<p>Nenhum projeto criado.<br>Crie um projeto para lancar sessoes do Claude.</p>' }));
     return;
   }
 
@@ -234,7 +236,7 @@ async function renderProfilesPage(container) {
             showProfileModal(p, async (data) => {
               try {
                 await API.updateProfile(p.id, data);
-                showToast('Perfil atualizado!');
+                showToast('Projeto atualizado!');
                 renderProfilesPage(container);
               } catch (err) {
                 showToast(err.message, 'error');
@@ -249,7 +251,7 @@ async function renderProfilesPage(container) {
             if (!confirm('Excluir este perfil?')) return;
             try {
               await API.deleteProfile(p.id);
-              showToast('Perfil excluido');
+              showToast('Projeto excluido');
               renderProfilesPage(container);
             } catch (err) {
               showToast(err.message, 'error');
@@ -266,8 +268,8 @@ async function renderProfilesPage(container) {
 
 // ─── Active Sessions Page ───
 
-async function renderActivePage(container) {
-  container.innerHTML = '';
+async function renderActivePage(container, guard) {
+  if (!guard) guard = () => true;
 
   const header = el('div', { className: 'page-title' }, [
     el('span', { textContent: 'Sessoes Ativas' }),
@@ -283,12 +285,14 @@ async function renderActivePage(container) {
   try {
     sessions = await API.getActiveSessions();
   } catch (err) {
+    if (!guard()) return;
     container.appendChild(el('div', { className: 'empty-state', innerHTML: `<p>Erro: ${err.message}</p>` }));
     return;
   }
+  if (!guard()) return;
 
   if (sessions.length === 0) {
-    container.appendChild(el('div', { className: 'empty-state', innerHTML: '<p>Nenhuma sessao ativa.<br>Lance uma sessao a partir dos Perfis.</p>' }));
+    container.appendChild(el('div', { className: 'empty-state', innerHTML: '<p>Nenhuma sessao ativa.<br>Lance uma sessao a partir dos Projetos.</p>' }));
     return;
   }
 
@@ -339,8 +343,8 @@ async function renderActivePage(container) {
 
 let _historyFilter = 'all';
 
-async function renderHistoryPage(container) {
-  container.innerHTML = '';
+async function renderHistoryPage(container, guard) {
+  if (!guard) guard = () => true;
 
   // Header with title + actions
   const header = el('div', { className: 'page-title' }, [
@@ -373,9 +377,11 @@ async function renderHistoryPage(container) {
   try {
     sessions = await API.getSessionHistory();
   } catch (err) {
+    if (!guard()) return;
     container.appendChild(el('div', { className: 'empty-state', innerHTML: `<p>Erro: ${err.message}</p>` }));
     return;
   }
+  if (!guard()) return;
 
   if (sessions.length === 0) {
     container.appendChild(el('div', { className: 'empty-state', innerHTML: '<p>Nenhuma sessao no historico.</p>' }));
@@ -417,7 +423,7 @@ async function renderHistoryPage(container) {
   table.innerHTML = `
     <thead>
       <tr>
-        <th>Perfil</th>
+        <th>Projeto</th>
         <th>Modo</th>
         <th>Status</th>
         <th>Inicio</th>
@@ -1015,11 +1021,11 @@ async function openFileViewer(filePath, fileSize) {
   saveBtn.onclick = () => { const ta = body.querySelector('textarea'); if (ta) doSave(ta); };
 }
 
-async function renderFileManagerPage(container) {
+async function renderFileManagerPage(container, guard) {
+  if (!guard) guard = () => true;
   if (!_fmCurrentPath) {
     _fmCurrentPath = (API.serverEnv && API.serverEnv.homeDir) || '/home';
   }
-  container.innerHTML = '';
 
   const header = el('div', { className: 'page-title' }, [
     el('span', { textContent: 'Arquivos' }),
@@ -1050,8 +1056,8 @@ async function renderFileManagerPage(container) {
 // GitHub CLI Page
 // ═══════════════════════════════════════════
 
-async function renderGitHubCLIPage(container) {
-  container.innerHTML = '';
+async function renderGitHubCLIPage(container, guard) {
+  if (!guard) guard = () => true;
   container.appendChild(el('h2', { textContent: 'GitHub CLI' }));
 
   const statusCard = el('div', { className: 'card', innerHTML: '<p style="color:var(--text-muted)">Verificando...</p>' });
@@ -1059,8 +1065,10 @@ async function renderGitHubCLIPage(container) {
 
   try {
     const status = await API.getGitHubCLIStatus();
+    if (!guard()) return;
     renderGitHubCLIStatus(container, statusCard, status);
   } catch (err) {
+    if (!guard()) return;
     statusCard.innerHTML = `<p style="color:var(--danger)">Erro ao verificar: ${err.message}</p>`;
   }
 }
@@ -1471,8 +1479,8 @@ function renderCopyBlock(text) {
 
 // ─── Cline CLI Page ───
 
-async function renderClineCliPage(container) {
-  container.innerHTML = '';
+async function renderClineCliPage(container, guard) {
+  if (!guard) guard = () => true;
   container.appendChild(el('h2', { textContent: 'Cline CLI' }));
 
   const statusCard = el('div', {
@@ -1483,8 +1491,10 @@ async function renderClineCliPage(container) {
 
   try {
     const status = await API.getClineCLIStatus();
+    if (!guard()) return;
     renderClineCliStatus(container, statusCard, status);
   } catch (err) {
+    if (!guard()) return;
     statusCard.innerHTML = `<p style="color:var(--danger)">Erro ao verificar: ${err.message}</p>`;
   }
 }
@@ -1966,8 +1976,8 @@ const _agentColorMap = {
   yellow: 'var(--warning)',
 };
 
-async function renderClaudeAgentsPage(container) {
-  container.innerHTML = '';
+async function renderClaudeAgentsPage(container, guard) {
+  if (!guard) guard = () => true;
 
   const header = el('div', { className: 'page-title' }, [
     el('span', { textContent: 'Agentes Claude Code' }),
@@ -1984,7 +1994,8 @@ async function renderClaudeAgentsPage(container) {
 
   try {
     const data = await API.getClaudeAgents();
-    container.removeChild(loadingEl);
+    if (!guard()) return;
+    if (loadingEl.parentNode) container.removeChild(loadingEl);
 
     // Info bar
     const infoBar = el('div', { className: 'card', style: { marginBottom: '24px', padding: '12px 16px' } }, [
@@ -2066,6 +2077,7 @@ async function renderClaudeAgentsPage(container) {
 
     container.appendChild(grid);
   } catch (err) {
+    if (!guard()) return;
     if (loadingEl.parentNode) container.removeChild(loadingEl);
     container.appendChild(el('div', { className: 'empty-state', innerHTML:
       `<p style="color:var(--danger)">Erro ao carregar agentes: ${err.message}</p>`
@@ -2188,8 +2200,8 @@ async function showClaudeAgentDetailModal(agent) {
 
 // ─── APM Agent Profiles Page ───
 
-async function renderAgentProfilesPage(container) {
-  container.innerHTML = '';
+async function renderAgentProfilesPage(container, guard) {
+  if (!guard) guard = () => true;
 
   const header = el('div', { className: 'page-title' }, [
     el('span', { textContent: 'Perfis de Agentes (APM)' }),
@@ -2209,8 +2221,9 @@ async function renderAgentProfilesPage(container) {
       API.getApmStatus(),
       API.getApmAgents(),
     ]);
+    if (!guard()) return;
 
-    container.removeChild(loadingEl);
+    if (loadingEl.parentNode) container.removeChild(loadingEl);
 
     // Section 1: Status card
     renderApmStatusCard(container, statusData);
@@ -2226,8 +2239,10 @@ async function renderAgentProfilesPage(container) {
     renderAgentProfilesGrid(container, agentsData.agents || []);
 
     // Section 3: Project APM status
+    if (!guard()) return;
     await renderProjectApmSection(container);
   } catch (err) {
+    if (!guard()) return;
     if (loadingEl.parentNode) container.removeChild(loadingEl);
     container.appendChild(el('div', { className: 'empty-state', innerHTML:
       `<p style="color:var(--danger)">Erro ao carregar APM: ${err.message}</p>`
