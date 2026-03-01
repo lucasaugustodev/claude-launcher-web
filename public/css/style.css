@@ -336,6 +336,8 @@ th {
 #terminal-container {
   flex: 1;
   padding: 4px;
+  min-height: 0; /* allow flex shrink for chat view */
+  overflow: hidden;
 }
 
 /* ─── Empty State ─── */
@@ -573,4 +575,13 @@ th {
 @media (max-width: 768px) {
   .fm-row { grid-template-columns: 1fr 80px 80px; }
   .fm-perms, .fm-date { display: none; }
+}
+
+/* ─── APM Agent Profiles ─── */
+.card code {
+  background: var(--bg-primary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
 }
