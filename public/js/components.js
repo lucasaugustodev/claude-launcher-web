@@ -269,9 +269,29 @@ async function renderProfilesPage(container, guard) {
 
 // ─── Active Sessions Page ───
 
+let _activePageExitHandler = null;
+
 async function renderActivePage(container, guard) {
   if (!guard) guard = () => true;
   container.innerHTML = '';
+
+  // Clean up previous exit listener
+  if (_activePageExitHandler) {
+    API.off('terminal:exit', _activePageExitHandler);
+    _activePageExitHandler = null;
+  }
+
+  // Listen for session exits to auto-refresh
+  _activePageExitHandler = () => {
+    if (!guard()) {
+      API.off('terminal:exit', _activePageExitHandler);
+      _activePageExitHandler = null;
+      return;
+    }
+    renderActivePage(container, guard);
+    updateActiveCount();
+  };
+  API.on('terminal:exit', _activePageExitHandler);
 
   const header = el('div', { className: 'page-title' }, [
     el('span', { textContent: 'Sessoes Ativas' }),
