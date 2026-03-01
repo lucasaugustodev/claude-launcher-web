@@ -367,16 +367,61 @@ th {
   to { transform: translateY(0); opacity: 1; }
 }
 
+/* ─── Sidebar Toggle (hamburger) ─── */
+.sidebar-toggle {
+  display: none;
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 1001;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 22px;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.sidebar-toggle:active { background: var(--border); }
+
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+}
+
 /* ─── Responsive ─── */
 @media (max-width: 768px) {
-  :root { --sidebar-width: 60px; }
-  .sidebar-header h1 { display: none; }
-  .nav-link span:not(.nav-icon) { display: none; }
-  .nav-link { justify-content: center; padding: 12px; }
-  .sidebar-footer span:not(.status-dot) { display: none; }
-  .badge { display: none !important; }
-  #content { padding: 16px; }
+  .sidebar-toggle { display: flex; }
+
+  #sidebar {
+    position: fixed;
+    top: 0;
+    left: -270px;
+    width: 260px;
+    min-width: 260px;
+    height: 100vh;
+    z-index: 1000;
+    transition: left 0.3s ease;
+  }
+
+  #app.sidebar-open #sidebar { left: 0; }
+  #app.sidebar-open .sidebar-overlay { display: block; }
+  #app.sidebar-open .sidebar-toggle { left: 272px; }
+
+  /* Show full labels on mobile drawer (better UX than icons only) */
+  .sidebar-header h1 { display: block; }
+  .nav-link span:not(.nav-icon) { display: inline; }
+
+  #content { padding: 16px; padding-top: 60px; }
   .card-grid { grid-template-columns: 1fr; }
+  .page-title { font-size: 18px; }
 }
 
 /* ─── GitHub CLI Page ─── */

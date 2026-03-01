@@ -142,11 +142,30 @@
     }
   }
 
+  // ─── Mobile Sidebar Toggle ───
+
+  const sidebarToggle = document.getElementById('sidebar-toggle');
+  const sidebarOverlay = document.getElementById('sidebar-overlay');
+  const app = document.getElementById('app');
+
+  function closeSidebar() { app.classList.remove('sidebar-open'); }
+
+  sidebarToggle.addEventListener('click', () => {
+    app.classList.toggle('sidebar-open');
+  });
+
+  sidebarOverlay.addEventListener('click', closeSidebar);
+
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 768) closeSidebar();
+  });
+
   // ─── Nav Click Handlers ───
 
   document.querySelectorAll('.nav-link').forEach(link => {
     link.addEventListener('click', (e) => {
       e.preventDefault();
+      closeSidebar();
       navigate(link.dataset.page);
     });
   });
