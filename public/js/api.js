@@ -107,8 +107,8 @@ const API = {
 
   getSessionHistory() { return this.fetch('api/sessions/history'); },
 
-  launchSession(profileId) {
-    return this.fetch('api/sessions/launch', { method: 'POST', body: JSON.stringify({ profileId }) });
+  launchSession(profileId, { streamJson } = {}) {
+    return this.fetch('api/sessions/launch', { method: 'POST', body: JSON.stringify({ profileId, streamJson }) });
   },
 
   stopSession(id) {
@@ -119,8 +119,8 @@ const API = {
     return this.fetch(`api/sessions/${id}/output`);
   },
 
-  resumeSession(id) {
-    return this.fetch(`api/sessions/${id}/resume`, { method: 'POST' });
+  resumeSession(id, { streamJson } = {}) {
+    return this.fetch(`api/sessions/${id}/resume`, { method: 'POST', body: JSON.stringify({ streamJson }) });
   },
 
   clearHistory() {
@@ -347,6 +347,8 @@ const API = {
       this._emit('ws:message', msg);
       if (msg.type === 'output') this._emit('terminal:output', msg);
       if (msg.type === 'exit') this._emit('terminal:exit', msg);
+      if (msg.type === 'action') this._emit('terminal:action', msg);
+      if (msg.type === 'stream-json') this._emit('terminal:stream-json', msg);
       if (msg.type === 'watcher-commit') this._emit('watcher:commit', msg);
       if (msg.type === 'watcher-pr') this._emit('watcher:pr', msg);
       if (msg.type === 'cline-start') this._emit('watcher:cline-start', msg);
@@ -371,6 +373,7 @@ const API = {
   attachSession(sessionId) { this.wsSend({ type: 'attach', sessionId }); },
   detachSession(sessionId) { this.wsSend({ type: 'detach', sessionId }); },
   sendInput(sessionId, data) { this.wsSend({ type: 'input', sessionId, data }); },
+  sendStreamJsonInput(sessionId, message) { this.wsSend({ type: 'stream-json-input', sessionId, message }); },
   resizeTerminal(sessionId, cols, rows) { this.wsSend({ type: 'resize', sessionId, cols, rows }); },
 
   // ─── Event Emitter ───
@@ -400,10 +403,10 @@ const API = {
     return this.fetch(`api/claude-agents/${encodeURIComponent(name)}`);
   },
 
-  launchClaudeAgent(agentName, workingDirectory, mode, nodeMemory) {
+  launchClaudeAgent(agentName, workingDirectory, mode, nodeMemory, { streamJson } = {}) {
     return this.fetch('api/claude-agents/launch', {
       method: 'POST',
-      body: JSON.stringify({ agentName, workingDirectory, mode, nodeMemory }),
+      body: JSON.stringify({ agentName, workingDirectory, mode, nodeMemory, streamJson }),
     });
   },
 
@@ -433,10 +436,10 @@ const API = {
     });
   },
 
-  launchAgent(agentId, workingDirectory, mode, nodeMemory) {
+  launchAgent(agentId, workingDirectory, mode, nodeMemory, { streamJson } = {}) {
     return this.fetch('api/apm/launch-agent', {
       method: 'POST',
-      body: JSON.stringify({ agentId, workingDirectory, mode, nodeMemory }),
+      body: JSON.stringify({ agentId, workingDirectory, mode, nodeMemory, streamJson }),
     });
   },
 };

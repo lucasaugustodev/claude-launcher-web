@@ -154,13 +154,13 @@
   // ─── Terminal Controls ───
 
   document.getElementById('terminal-back').onclick = () => {
-    TerminalManager.close();
+    getViewManager().close();
     updateWatcherIndicator('');
     _watcherCommitCount = 0;
   };
 
   document.getElementById('terminal-stop').onclick = async () => {
-    const sessionId = TerminalManager.currentSessionId;
+    const sessionId = getViewManager().currentSessionId;
     if (!sessionId) return;
     try {
       await API.stopSession(sessionId);

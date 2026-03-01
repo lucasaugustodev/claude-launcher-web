@@ -1,4 +1,5 @@
 const pty = require('node-pty');
+const { spawn: spawnProcess } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -6,6 +7,7 @@ const { v4: uuid } = require('uuid');
 const storage = require('./storage');
 const githubSync = require('./github-sync');
 const gitWatcher = require('./git-watcher');
+const { StreamAnalyzer } = require('./stream-analyzer');
 
 // Broadcast function set by server.js
 let _broadcast = () => {};
@@ -158,22 +160,38 @@ function spawnSession(sessionId, shellAndArgs, cwd, env, sessionUpdater) {
     pid: ptyProcess.pid,
     exited: false,
     exitCode: null,
+    streamJson: false,
   };
 
-  // Capture output, save to file, and broadcast to listeners
+  // TUI mode: stream analyzer for mobile Chat View (emits structured action messages)
+  const analyzer = new StreamAnalyzer(sessionId, (action) => {
+    const msg = JSON.stringify({ type: 'action', sessionId, action });
+    for (const send of handle.listeners) {
+      try { send(msg); } catch {}
+    }
+  });
+  handle.analyzer = analyzer;
+
   ptyProcess.onData((data) => {
     handle.output += data;
     if (handle.output.length > 500000) {
       handle.output = handle.output.slice(-400000);
     }
-    // Persist output to disk
     try { fs.appendFileSync(outputFile, data); } catch {}
     for (const send of handle.listeners) {
       try { send(JSON.stringify({ type: 'output', sessionId, data })); } catch {}
     }
+    analyzer.feed(data);
   });
 
   ptyProcess.onExit(({ exitCode }) => {
+    if (handle.analyzer) handle.analyzer.destroy();
+    for (const send of handle.listeners) {
+      try {
+        send(JSON.stringify({ type: 'action', sessionId, action: { kind: 'session_ended', exitCode, timestamp: Date.now() } }));
+      } catch {}
+    }
+
     handle.exited = true;
     handle.exitCode = exitCode;
 
@@ -220,7 +238,115 @@ function spawnSession(sessionId, shellAndArgs, cwd, env, sessionUpdater) {
   return handle;
 }
 
-async function launchSession(profileId) {
+// ─── Stream-JSON Mode ───
+// Persistent interactive session using --output-format stream-json --input-format stream-json
+// Uses child_process.spawn (no PTY needed for JSON I/O).
+// Process stays alive for the entire session. Input via stdin JSON, output via stdout NDJSON.
+
+function spawnStreamJsonSession(sessionId, cwd, env, extraFlags) {
+  if (!HAS_LOCAL_CLI) throw new Error('Local CLI not found for stream-json mode');
+
+  const args = [LOCAL_CLI, '-p', '--output-format', 'stream-json', '--input-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'];
+  if (extraFlags) {
+    for (const flag of extraFlags) {
+      if (flag === '--dangerously-skip-permissions') continue; // already added
+      args.push(flag);
+    }
+  }
+
+  console.log(`[STREAM-JSON] Launching: ${NODE_EXE} ${args.join(' ')}, cwd=${cwd}`);
+
+  const child = spawnProcess(NODE_EXE, args, {
+    cwd,
+    env,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  const outputFile = path.join(OUTPUTS_DIR, `${sessionId}.raw`);
+
+  const handle = {
+    pty: null,
+    childProcess: child,
+    output: '',
+    listeners: new Set(),
+    startedAt: new Date().toISOString(),
+    pid: child.pid,
+    exited: false,
+    exitCode: null,
+    streamJson: true,
+    outputFile,
+  };
+
+  let ndjsonBuffer = '';
+
+  child.stdout.on('data', (data) => {
+    const text = data.toString();
+    handle.output += text;
+    if (handle.output.length > 500000) {
+      handle.output = handle.output.slice(-400000);
+    }
+    try { fs.appendFileSync(outputFile, text); } catch {}
+
+    // Send raw output for terminal toggle fallback
+    for (const send of handle.listeners) {
+      try { send(JSON.stringify({ type: 'output', sessionId, data: text })); } catch {}
+    }
+
+    // Parse NDJSON lines
+    ndjsonBuffer += text;
+    const lines = ndjsonBuffer.split('\n');
+    ndjsonBuffer = lines.pop() || '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const event = JSON.parse(trimmed);
+        const msg = JSON.stringify({ type: 'stream-json', sessionId, event });
+        for (const send of handle.listeners) {
+          try { send(msg); } catch {}
+        }
+      } catch {} // skip non-JSON lines
+    }
+  });
+
+  child.stderr.on('data', (data) => {
+    const text = data.toString();
+    console.log(`[STREAM-JSON] stderr ${sessionId}: ${text.substring(0, 300)}`);
+  });
+
+  child.on('close', (code) => {
+    handle.exited = true;
+    handle.exitCode = code;
+
+    for (const send of handle.listeners) {
+      try { send(JSON.stringify({ type: 'exit', sessionId, exitCode: code })); } catch {}
+    }
+
+    const endedAt = new Date().toISOString();
+    const startMs = new Date(handle.startedAt).getTime();
+    const duration = Math.round((Date.now() - startMs) / 1000);
+
+    storage.updateSession(sessionId, {
+      status: code === 0 ? 'completed' : 'crashed',
+      endedAt,
+      durationSeconds: duration,
+      exitCode: code,
+    });
+
+    githubSync.syncSession(sessionId).catch(err => {
+      console.error(`[GITHUB] Sync failed for ${sessionId}:`, err.message);
+    });
+
+    setTimeout(() => handles.delete(sessionId), 5000);
+    console.log(`[STREAM-JSON] Session ${sessionId} exited (code=${code})`);
+  });
+
+  handles.set(sessionId, handle);
+  startPolling();
+  return handle;
+}
+
+async function launchSession(profileId, { streamJson } = {}) {
   const profile = storage.getProfile(profileId);
   if (!profile) throw new Error('Profile not found');
 
@@ -261,8 +387,13 @@ async function launchSession(profileId) {
   const flags = [];
   if (profile.mode === 'bypass') flags.push('--dangerously-skip-permissions');
 
-  const shellAndArgs = buildClaudeCommand(flags, profile.initialPrompt || null);
-  const handle = spawnSession(sessionId, shellAndArgs, cwd, env);
+  let handle;
+  if (streamJson) {
+    handle = spawnStreamJsonSession(sessionId, cwd, env, flags);
+  } else {
+    const shellAndArgs = buildClaudeCommand(flags, profile.initialPrompt || null);
+    handle = spawnSession(sessionId, shellAndArgs, cwd, env);
+  }
 
   const session = {
     id: sessionId,
@@ -279,6 +410,7 @@ async function launchSession(profileId) {
     githubRepo: profile.githubRepo || null,
     syncStrategy: profile.syncStrategy || null,
     watcherBranch: watcherBranch,
+    streamJson: !!streamJson,
   };
   storage.addSession(session);
 
@@ -301,7 +433,7 @@ async function launchSession(profileId) {
   return session;
 }
 
-function launchAgent({ agentName, workingDirectory, mode, nodeMemory }) {
+function launchAgent({ agentName, workingDirectory, mode, nodeMemory, streamJson }) {
   const sessionId = uuid();
   let cwd = workingDirectory || process.cwd();
   if (!fs.existsSync(cwd)) {
@@ -313,8 +445,13 @@ function launchAgent({ agentName, workingDirectory, mode, nodeMemory }) {
   const flags = ['--agent', agentName];
   if (mode === 'bypass') flags.push('--dangerously-skip-permissions');
 
-  const shellAndArgs = buildClaudeCommand(flags, null);
-  const handle = spawnSession(sessionId, shellAndArgs, cwd, env);
+  let handle;
+  if (streamJson) {
+    handle = spawnStreamJsonSession(sessionId, cwd, env, flags);
+  } else {
+    const shellAndArgs = buildClaudeCommand(flags, null);
+    handle = spawnSession(sessionId, shellAndArgs, cwd, env);
+  }
 
   const session = {
     id: sessionId,
@@ -337,7 +474,7 @@ function launchAgent({ agentName, workingDirectory, mode, nodeMemory }) {
   return session;
 }
 
-function launchDirect({ prompt, workingDirectory, mode, nodeMemory, name }) {
+function launchDirect({ prompt, workingDirectory, mode, nodeMemory, name, streamJson }) {
   const sessionId = uuid();
   let cwd = workingDirectory || process.cwd();
   if (!fs.existsSync(cwd)) {
@@ -349,8 +486,13 @@ function launchDirect({ prompt, workingDirectory, mode, nodeMemory, name }) {
   const flags = [];
   if (mode === 'bypass') flags.push('--dangerously-skip-permissions');
 
-  const shellAndArgs = buildClaudeCommand(flags, prompt || null);
-  const handle = spawnSession(sessionId, shellAndArgs, cwd, env);
+  let handle;
+  if (streamJson) {
+    handle = spawnStreamJsonSession(sessionId, cwd, env, flags);
+  } else {
+    const shellAndArgs = buildClaudeCommand(flags, prompt || null);
+    handle = spawnSession(sessionId, shellAndArgs, cwd, env);
+  }
 
   const session = {
     id: sessionId,
@@ -373,7 +515,7 @@ function launchDirect({ prompt, workingDirectory, mode, nodeMemory, name }) {
   return session;
 }
 
-function resumeSession(sessionId) {
+function resumeSession(sessionId, { streamJson } = {}) {
   const oldSession = storage.getSession(sessionId);
   if (!oldSession) throw new Error('Session not found');
 
@@ -385,14 +527,17 @@ function resumeSession(sessionId) {
   const newSessionId = uuid();
   const env = buildClaudeEnv(nodeMemory);
 
-  // Use --continue to resume the most recent conversation in this CWD
-  // This avoids workspace trust dialogs and correctly restores Claude's context
   const flags = ['--continue'];
   if (mode === 'bypass') flags.push('--dangerously-skip-permissions');
 
-  const shellAndArgs = buildClaudeCommand(flags, null);
   const displayName = `${oldSession.profileName} (resumed)`;
-  const handle = spawnSession(newSessionId, shellAndArgs, cwd, env);
+  let handle;
+  if (streamJson) {
+    handle = spawnStreamJsonSession(newSessionId, cwd, env, flags);
+  } else {
+    const shellAndArgs = buildClaudeCommand(flags, null);
+    handle = spawnSession(newSessionId, shellAndArgs, cwd, env);
+  }
 
   const session = {
     id: newSessionId,
@@ -417,14 +562,26 @@ function stopSession(sessionId) {
   const handle = handles.get(sessionId);
   if (!handle || handle.exited) return false;
 
-  try {
-    handle.pty.kill();
-  } catch {
-    // Force kill on Windows
+  if (handle.streamJson) {
+    // Stream-JSON mode: kill child process
     try {
-      const { execSync } = require('child_process');
-      execSync(`taskkill /F /T /PID ${handle.pid}`, { stdio: 'ignore' });
-    } catch {}
+      handle.childProcess.kill();
+    } catch {
+      try {
+        const { execSync } = require('child_process');
+        execSync(`taskkill /F /T /PID ${handle.pid}`, { stdio: 'ignore' });
+      } catch {}
+    }
+  } else {
+    // PTY mode
+    try {
+      handle.pty.kill();
+    } catch {
+      try {
+        const { execSync } = require('child_process');
+        execSync(`taskkill /F /T /PID ${handle.pid}`, { stdio: 'ignore' });
+      } catch {}
+    }
   }
 
   storage.updateSession(sessionId, {
@@ -451,7 +608,11 @@ function stopSession(sessionId) {
 
 function sendInput(sessionId, data) {
   const handle = handles.get(sessionId);
-  if (!handle || handle.exited) return false;
+  if (!handle || handle.exited) {
+    console.log(`[INPUT] REJECTED - session ${sessionId} not found or exited`);
+    return false;
+  }
+  console.log(`[INPUT] Writing to PTY session ${sessionId}: ${JSON.stringify(data).substring(0, 100)}`);
   handle.pty.write(data);
   return true;
 }
@@ -461,6 +622,20 @@ function resizePty(sessionId, cols, rows) {
   if (!handle || handle.exited) return false;
   try { handle.pty.resize(cols, rows); } catch {}
   return true;
+}
+
+function sendStreamJsonInput(sessionId, message) {
+  const handle = handles.get(sessionId);
+  if (!handle || handle.exited || !handle.streamJson) return false;
+  // Claude Code stream-json expects: {"type":"user","message":{"role":"user","content":"..."}}
+  const json = JSON.stringify({ type: 'user', message: { role: 'user', content: message } }) + '\n';
+  handle.childProcess.stdin.write(json);
+  return true;
+}
+
+function isStreamJson(sessionId) {
+  const handle = handles.get(sessionId);
+  return handle ? !!handle.streamJson : false;
 }
 
 function getActiveSessions() {
@@ -640,6 +815,7 @@ function setBroadcast(fn) {
 
 module.exports = {
   launchSession, launchDirect, launchAgent, resumeSession, stopSession, sendInput, resizePty,
+  sendStreamJsonInput, isStreamJson,
   getActiveSessions, getSessionOutput,
   addListener, removeListener, stopAll, cleanupOrphaned,
   setBroadcast, spawnInteractive,

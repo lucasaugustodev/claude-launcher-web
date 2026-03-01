@@ -1,5 +1,9 @@
 // ─── UI Components ───
 
+function isMobileView() {
+  return window.innerWidth <= 768;
+}
+
 function el(tag, attrs = {}, children = []) {
   const elem = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -213,9 +217,9 @@ async function renderProfilesPage(container) {
           textContent: 'Lancar',
           onClick: async () => {
             try {
-              const session = await API.launchSession(p.id);
+              const session = await API.launchSession(p.id, { streamJson: isMobileView() });
               showToast('Sessao lancada!');
-              TerminalManager.open(session.id);
+              getViewManager().open(session.id, { streamJson: isMobileView() });
               document.getElementById('terminal-title').textContent = `${p.name} - ${session.id.slice(0, 8)}`;
               updateActiveCount();
             } catch (err) {
@@ -305,7 +309,7 @@ async function renderActivePage(container) {
           className: 'btn btn-primary btn-sm',
           textContent: 'Abrir Terminal',
           onClick: () => {
-            TerminalManager.open(s.id);
+            getViewManager().open(s.id, { streamJson: isMobileView() });
             document.getElementById('terminal-title').textContent = `Sessao ${s.id.slice(0, 8)}`;
           },
         }),
@@ -448,7 +452,7 @@ async function renderHistoryPage(container) {
       onClick: async () => {
         try {
           const { output } = await API.getSessionOutputData(s.id);
-          TerminalManager.openReadOnly(
+          getViewManager().openReadOnly(
             `${s.profileName || 'Sessao'} - ${s.id.slice(0, 8)} (historico)`,
             output
           );
@@ -465,9 +469,9 @@ async function renderHistoryPage(container) {
         textContent: 'Retomar',
         onClick: async () => {
           try {
-            const newSession = await API.resumeSession(s.id);
+            const newSession = await API.resumeSession(s.id, { streamJson: isMobileView() });
             showToast('Sessao retomada!');
-            TerminalManager.open(newSession.id);
+            getViewManager().open(newSession.id, { streamJson: isMobileView() });
             document.getElementById('terminal-title').textContent =
               `${newSession.profileName} - ${newSession.id.slice(0, 8)}`;
             updateActiveCount();
@@ -1130,7 +1134,7 @@ function renderGitHubCLIStatus(container, statusCard, status) {
         try {
           const result = await API.startGitHubCLIAuth();
           // Open the terminal overlay with this interactive session
-          TerminalManager.open(result.sessionId);
+          getViewManager().open(result.sessionId);
           document.getElementById('terminal-title').textContent = 'gh auth login';
 
           // When terminal exits, check auth status and refresh page
@@ -1556,7 +1560,7 @@ function renderClineCliStatus(container, statusCard, status) {
         authBtn.textContent = 'Abrindo terminal...';
         try {
           const result = await API.startClineCLIAuth();
-          TerminalManager.open(result.sessionId);
+          getViewManager().open(result.sessionId);
           document.getElementById('terminal-title').textContent = 'cline auth';
 
           const onExit = (msg) => {
@@ -1616,7 +1620,7 @@ function renderClineCliStatus(container, statusCard, status) {
         onClick: async () => {
           try {
             const result = await API.startClineCLIAuth();
-            TerminalManager.open(result.sessionId);
+            getViewManager().open(result.sessionId);
             document.getElementById('terminal-title').textContent = 'cline auth';
             const onExit = (msg) => {
               if (msg.sessionId === result.sessionId) {
@@ -1690,7 +1694,7 @@ function renderClineCliStatus(container, statusCard, status) {
           showToast('Sessao Cline iniciada!');
           launchForm.style.display = 'none';
           newSessionBtn.style.display = '';
-          TerminalManager.open(session.id);
+          getViewManager().open(session.id);
           document.getElementById('terminal-title').textContent = `Cline — ${session.id.slice(0, 8)}`;
           const onExit = (msg) => {
             if (msg.sessionId === session.id) {
@@ -1814,7 +1818,7 @@ async function renderClineActiveSessions(section, container, statusCard, status)
             className: 'btn btn-primary btn-sm',
             textContent: 'Abrir Terminal',
             onClick: () => {
-              TerminalManager.open(s.id);
+              getViewManager().open(s.id);
               document.getElementById('terminal-title').textContent = `Cline — ${s.id.slice(0, 8)}`;
             },
           }),
@@ -1924,7 +1928,7 @@ async function renderClineSessionHistory(section) {
         onClick: async () => {
           try {
             const { output } = await API.getClineSessionOutput(s.id);
-            TerminalManager.openReadOnly(
+            getViewManager().openReadOnly(
               `Cline — ${s.id.slice(0, 8)} (historico)`,
               output,
             );
@@ -2125,9 +2129,9 @@ function showLaunchClaudeAgentModal(agent) {
     overlay.remove();
 
     try {
-      const session = await API.launchClaudeAgent(agent.name, cwd, mode, mem);
+      const session = await API.launchClaudeAgent(agent.name, cwd, mode, mem, { streamJson: isMobileView() });
       showToast(`Agente "${agent.name}" lancado!`);
-      TerminalManager.open(session.id);
+      getViewManager().open(session.id, { streamJson: isMobileView() });
       document.getElementById('terminal-title').textContent =
         `Agent: ${agent.name} \u2014 ${session.id.slice(0, 8)}`;
       updateActiveCount();
@@ -2367,9 +2371,9 @@ function showLaunchAgentModal(agent) {
     overlay.remove();
 
     try {
-      const session = await API.launchAgent(agent.id, cwd, mode, mem);
+      const session = await API.launchAgent(agent.id, cwd, mode, mem, { streamJson: isMobileView() });
       showToast(`${agent.agentType} lancado!`);
-      TerminalManager.open(session.id);
+      getViewManager().open(session.id, { streamJson: isMobileView() });
       document.getElementById('terminal-title').textContent =
         `APM ${agent.agentType} \u2014 ${session.id.slice(0, 8)}`;
       updateActiveCount();

@@ -413,7 +413,7 @@ app.post('/api/apm/install', checkToken, (req, res) => {
 
 // POST /api/apm/launch-agent - Launch session with agent profile
 app.post('/api/apm/launch-agent', checkToken, (req, res) => {
-  const { agentId, workingDirectory, mode, nodeMemory } = req.body;
+  const { agentId, workingDirectory, mode, nodeMemory, streamJson } = req.body;
   if (!agentId) return res.status(400).json({ error: 'agentId is required' });
 
   const commandsDir = path.join(APM_TEMPLATES_DIR, 'commands');
@@ -445,6 +445,7 @@ app.post('/api/apm/launch-agent', checkToken, (req, res) => {
       mode: mode || 'bypass',
       nodeMemory: nodeMemory || null,
       name: `APM ${agentType}`,
+      streamJson: !!streamJson,
     });
     console.log(`[APM] Agent ${agentId} (${agentType}) launched in ${cwd}, session ${session.id}`);
     res.status(201).json(session);
@@ -521,7 +522,7 @@ app.get('/api/claude-agents/:name', checkToken, (req, res) => {
 
 // POST /api/claude-agents/launch - Launch a Claude Code agent
 app.post('/api/claude-agents/launch', checkToken, (req, res) => {
-  const { agentName, workingDirectory, mode, nodeMemory } = req.body;
+  const { agentName, workingDirectory, mode, nodeMemory, streamJson } = req.body;
   if (!agentName) return res.status(400).json({ error: 'agentName is required' });
 
   // Verify agent exists
@@ -543,6 +544,7 @@ app.post('/api/claude-agents/launch', checkToken, (req, res) => {
       workingDirectory: cwd,
       mode: mode || 'normal',
       nodeMemory: nodeMemory || null,
+      streamJson: !!streamJson,
     });
     console.log(`[AGENT] Claude agent "${agentName}" launched in ${cwd}, session ${session.id}`);
     res.status(201).json(session);
@@ -843,11 +845,11 @@ app.get('/api/sessions/history', (req, res) => {
 });
 
 app.post('/api/sessions/launch', async (req, res) => {
-  const { profileId } = req.body;
+  const { profileId, streamJson } = req.body;
   if (!profileId) return res.status(400).json({ error: 'profileId is required' });
 
   try {
-    const session = await ptyManager.launchSession(profileId);
+    const session = await ptyManager.launchSession(profileId, { streamJson: !!streamJson });
     res.status(201).json(session);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -866,8 +868,9 @@ app.get('/api/sessions/:id/output', (req, res) => {
 });
 
 app.post('/api/sessions/:id/resume', (req, res) => {
+  const { streamJson } = req.body || {};
   try {
-    const session = ptyManager.resumeSession(req.params.id);
+    const session = ptyManager.resumeSession(req.params.id, { streamJson: !!streamJson });
     res.status(201).json(session);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -1227,9 +1230,17 @@ wss.on('connection', (ws, req) => {
         break;
       }
 
+      case 'stream-json-input': {
+        const { sessionId, message } = msg;
+        if (sessionId && message) {
+          ptyManager.sendStreamJsonInput(sessionId, message);
+        }
+        break;
+      }
+
       case 'resize': {
         const { sessionId, cols, rows } = msg;
-        if (sessionId && cols && rows) {
+        if (sessionId && cols && rows && !ptyManager.isStreamJson(sessionId)) {
           ptyManager.resizePty(sessionId, cols, rows);
         }
         break;
