@@ -389,4 +389,54 @@ const API = {
     const set = this._wsListeners.get(event);
     if (set) for (const cb of set) cb(data);
   },
+
+  // ─── Claude Code Agents ───
+
+  getClaudeAgents() {
+    return this.fetch('api/claude-agents');
+  },
+
+  getClaudeAgent(name) {
+    return this.fetch(`api/claude-agents/${encodeURIComponent(name)}`);
+  },
+
+  launchClaudeAgent(agentName, workingDirectory, mode, nodeMemory) {
+    return this.fetch('api/claude-agents/launch', {
+      method: 'POST',
+      body: JSON.stringify({ agentName, workingDirectory, mode, nodeMemory }),
+    });
+  },
+
+  // ─── APM (Perfis de Agentes) ───
+
+  getApmStatus() {
+    return this.fetch('api/apm/status');
+  },
+
+  getApmAgents() {
+    return this.fetch('api/apm/agents');
+  },
+
+  getApmAgent(id) {
+    return this.fetch(`api/apm/agents/${id}`);
+  },
+
+  getApmProjects(scanPath) {
+    const qs = scanPath ? '?scanPath=' + encodeURIComponent(scanPath) : '';
+    return this.fetch('api/apm/projects' + qs);
+  },
+
+  installApm(targetDir, overwrite = false) {
+    return this.fetch('api/apm/install', {
+      method: 'POST',
+      body: JSON.stringify({ targetDir, overwrite }),
+    });
+  },
+
+  launchAgent(agentId, workingDirectory, mode, nodeMemory) {
+    return this.fetch('api/apm/launch-agent', {
+      method: 'POST',
+      body: JSON.stringify({ agentId, workingDirectory, mode, nodeMemory }),
+    });
+  },
 };

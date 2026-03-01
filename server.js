@@ -12,6 +12,7 @@ const clineCli = require('./cline-cli');
 const multer = require('multer');
 const fs = require('fs');
 const { execFile } = require('child_process');
+const os = require('os');
 
 const PORT = process.env.PORT || 3001;
 
@@ -89,7 +90,6 @@ app.get('/api/auth/status', (req, res) => {
   if (authHeader && authHeader.startsWith('Bearer ')) {
     loggedIn = activeSessions.has(authHeader.slice(7));
   }
-  const os = require('os');
   res.json({
     needsSetup,
     loggedIn,
@@ -160,6 +160,437 @@ app.post('/api/auth/logout', (req, res) => {
     activeSessions.delete(authHeader.slice(7));
   }
   res.json({ ok: true });
+});
+
+// ─── APM Agent Profiles (authenticated) ───
+
+const APM_TEMPLATES_DIR = path.join(__dirname, 'apm-templates');
+
+function parseYamlFrontmatter(content) {
+  const match = content.match(/^---\s*\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return {};
+  const yaml = {};
+  for (const line of match[1].split(/\r?\n/)) {
+    const m = line.replace(/\r$/, '').match(/^(\w+):\s*(.+)$/);
+    if (m) {
+      const val = m[2].trim();
+      yaml[m[1]] = isNaN(val) ? val : Number(val);
+    }
+  }
+  return yaml;
+}
+
+function deriveCategory(commandName) {
+  if (!commandName) return 'other';
+  if (commandName.startsWith('initiate')) return 'initiate';
+  if (commandName.startsWith('handover')) return 'handover';
+  if (commandName.startsWith('delegate')) return 'delegate';
+  return 'other';
+}
+
+function deriveAgentType(id) {
+  const map = {
+    'apm-1': 'Setup Agent',
+    'apm-2': 'Manager Agent',
+    'apm-3': 'Implementation Agent',
+    'apm-4': 'Ad-Hoc Agent',
+    'apm-5': 'Manager Handover',
+    'apm-6': 'Implementation Handover',
+    'apm-7': 'Research Delegate',
+    'apm-8': 'Debug Delegate',
+  };
+  return map[id] || id;
+}
+
+function parseAgentFile(filename, commandsDir) {
+  const filePath = path.join(commandsDir, filename);
+  const raw = fs.readFileSync(filePath, 'utf8');
+  const stat = fs.statSync(filePath);
+  const frontmatter = parseYamlFrontmatter(raw);
+  const idMatch = filename.match(/^apm-(\d+)/);
+  const id = idMatch ? `apm-${idMatch[1]}` : filename.replace('.md', '');
+  return {
+    id,
+    filename,
+    commandName: frontmatter.command_name || '',
+    priority: frontmatter.priority || 0,
+    description: frontmatter.description || '',
+    category: deriveCategory(frontmatter.command_name),
+    agentType: deriveAgentType(id),
+    fileSize: stat.size,
+  };
+}
+
+// GET /api/apm/status - APM templates status
+app.get('/api/apm/status', checkToken, (req, res) => {
+  const commandsDir = path.join(APM_TEMPLATES_DIR, 'commands');
+  const guidesDir = path.join(APM_TEMPLATES_DIR, 'guides');
+  const commandsExist = fs.existsSync(commandsDir);
+  const guidesExist = fs.existsSync(guidesDir);
+  let commandsCount = 0;
+  let guidesCount = 0;
+  if (commandsExist) {
+    try { commandsCount = fs.readdirSync(commandsDir).filter(f => f.startsWith('apm-') && f.endsWith('.md')).length; } catch {}
+  }
+  if (guidesExist) {
+    try { guidesCount = fs.readdirSync(guidesDir).filter(f => f.endsWith('.md')).length; } catch {}
+  }
+  res.json({
+    installed: commandsExist && guidesExist && commandsCount > 0,
+    templatesDir: APM_TEMPLATES_DIR,
+    commandsCount,
+    guidesCount,
+  });
+});
+
+// GET /api/apm/agents - List agent profiles
+app.get('/api/apm/agents', checkToken, (req, res) => {
+  const commandsDir = path.join(APM_TEMPLATES_DIR, 'commands');
+  if (!fs.existsSync(commandsDir)) {
+    return res.json({ agents: [] });
+  }
+  try {
+    const files = fs.readdirSync(commandsDir)
+      .filter(f => f.startsWith('apm-') && f.endsWith('.md'))
+      .sort();
+    const agents = files.map(f => parseAgentFile(f, commandsDir));
+    agents.sort((a, b) => a.priority - b.priority);
+    res.json({ agents });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/apm/agents/:id - Agent detail with full content
+app.get('/api/apm/agents/:id', checkToken, (req, res) => {
+  const commandsDir = path.join(APM_TEMPLATES_DIR, 'commands');
+  if (!fs.existsSync(commandsDir)) {
+    return res.status(404).json({ error: 'Templates not found' });
+  }
+  const files = fs.readdirSync(commandsDir).filter(f => f.startsWith('apm-') && f.endsWith('.md'));
+  const agentFile = files.find(f => {
+    const m = f.match(/^apm-(\d+)/);
+    return m && `apm-${m[1]}` === req.params.id;
+  });
+  if (!agentFile) return res.status(404).json({ error: 'Agent not found' });
+  const agent = parseAgentFile(agentFile, commandsDir);
+  agent.content = fs.readFileSync(path.join(commandsDir, agentFile), 'utf8');
+  res.json(agent);
+});
+
+// GET /api/apm/projects - Projects with APM installation status
+app.get('/api/apm/projects', checkToken, (req, res) => {
+  const results = [];
+  const profiles = storage.getProfiles();
+  const dirsChecked = new Set();
+  for (const p of profiles) {
+    const dir = p.workingDirectory;
+    if (!dir || dirsChecked.has(dir)) continue;
+    dirsChecked.add(dir);
+    if (!fs.existsSync(dir)) continue;
+    const apmDir = path.join(dir, '.apm');
+    const cmdDir = path.join(dir, '.claude', 'commands');
+    const hasApm = fs.existsSync(apmDir);
+    const hasCommands = fs.existsSync(cmdDir);
+    let metadata = null;
+    if (hasApm) {
+      try { metadata = JSON.parse(fs.readFileSync(path.join(apmDir, 'metadata.json'), 'utf8')); } catch {}
+    }
+    let guidesCount = 0;
+    if (hasApm) {
+      try { guidesCount = fs.readdirSync(path.join(apmDir, 'guides')).filter(f => f.endsWith('.md')).length; } catch {}
+    }
+    let commandsCount = 0;
+    if (hasCommands) {
+      try { commandsCount = fs.readdirSync(cmdDir).filter(f => f.startsWith('apm-') && f.endsWith('.md')).length; } catch {}
+    }
+    results.push({
+      path: dir,
+      profileName: p.name,
+      profileId: p.id,
+      apmInstalled: hasApm,
+      commandsInstalled: hasCommands && commandsCount > 0,
+      metadata,
+      guidesCount,
+      commandsCount,
+    });
+  }
+  // Optional: check additional path
+  if (req.query.scanPath) {
+    const dir = req.query.scanPath;
+    if (!dirsChecked.has(dir) && fs.existsSync(dir)) {
+      const apmDir = path.join(dir, '.apm');
+      const cmdDir = path.join(dir, '.claude', 'commands');
+      const hasApm = fs.existsSync(apmDir);
+      const hasCommands = fs.existsSync(cmdDir);
+      let metadata = null;
+      if (hasApm) {
+        try { metadata = JSON.parse(fs.readFileSync(path.join(apmDir, 'metadata.json'), 'utf8')); } catch {}
+      }
+      results.push({
+        path: dir,
+        profileName: path.basename(dir),
+        profileId: null,
+        apmInstalled: hasApm,
+        commandsInstalled: hasCommands,
+        metadata,
+        guidesCount: 0,
+        commandsCount: 0,
+      });
+    }
+  }
+  res.json({ projects: results });
+});
+
+// POST /api/apm/install - Install APM in a project
+app.post('/api/apm/install', checkToken, (req, res) => {
+  const { targetDir, overwrite } = req.body;
+  if (!targetDir) return res.status(400).json({ error: 'targetDir is required' });
+  if (!fs.existsSync(targetDir)) return res.status(400).json({ error: 'Target directory does not exist' });
+
+  const srcCommandsDir = path.join(APM_TEMPLATES_DIR, 'commands');
+  const srcGuidesDir = path.join(APM_TEMPLATES_DIR, 'guides');
+  if (!fs.existsSync(srcCommandsDir) || !fs.existsSync(srcGuidesDir)) {
+    return res.status(400).json({ error: 'APM templates not found in launcher' });
+  }
+
+  const targetApmDir = path.join(targetDir, '.apm');
+  const targetCommandsDir = path.join(targetDir, '.claude', 'commands');
+
+  if (fs.existsSync(targetApmDir) && !overwrite) {
+    return res.status(409).json({ error: 'APM already installed. Use overwrite to update.', alreadyInstalled: true });
+  }
+
+  try {
+    // Create structure
+    fs.mkdirSync(path.join(targetApmDir, 'guides'), { recursive: true });
+    fs.mkdirSync(path.join(targetApmDir, 'Memory'), { recursive: true });
+    fs.mkdirSync(path.join(targetApmDir, 'tmp'), { recursive: true });
+    fs.mkdirSync(targetCommandsDir, { recursive: true });
+
+    // Copy guides
+    for (const f of fs.readdirSync(srcGuidesDir).filter(f => f.endsWith('.md'))) {
+      fs.copyFileSync(path.join(srcGuidesDir, f), path.join(targetApmDir, 'guides', f));
+    }
+
+    // Copy commands
+    for (const f of fs.readdirSync(srcCommandsDir).filter(f => f.startsWith('apm-') && f.endsWith('.md'))) {
+      fs.copyFileSync(path.join(srcCommandsDir, f), path.join(targetCommandsDir, f));
+    }
+
+    // Create metadata
+    const metadata = {
+      cliVersion: '0.5.4',
+      templateVersion: 'v0.5.4+templates.1',
+      assistants: ['Claude Code'],
+      installedAt: new Date().toISOString(),
+      lastUpdated: new Date().toISOString(),
+      installedFrom: 'claude-launcher-web',
+    };
+    fs.writeFileSync(path.join(targetApmDir, 'metadata.json'), JSON.stringify(metadata, null, 2));
+
+    // Create Implementation_Plan.md template (only if not exists or overwrite)
+    const planFile = path.join(targetApmDir, 'Implementation_Plan.md');
+    if (!fs.existsSync(planFile) || overwrite) {
+      fs.writeFileSync(planFile, '# Project \u2013 APM Implementation Plan\n**Memory Strategy:** Dynamic-MD\n**Last Modification:** [To be filled]\n**Project Overview:** [To be filled by Setup Agent]\n');
+    }
+
+    // Create Memory_Root.md template
+    const memFile = path.join(targetApmDir, 'Memory', 'Memory_Root.md');
+    if (!fs.existsSync(memFile) || overwrite) {
+      fs.writeFileSync(memFile, '# Memory Root\n**Project Overview:** [To be filled by Manager Agent]\n**Current Phase:** [To be updated]\n**Active Tasks:** [To be updated]\n');
+    }
+
+    const guidesCount = fs.readdirSync(path.join(targetApmDir, 'guides')).filter(f => f.endsWith('.md')).length;
+    const commandsCount = fs.readdirSync(targetCommandsDir).filter(f => f.startsWith('apm-') && f.endsWith('.md')).length;
+
+    console.log(`[APM] Installed in ${targetDir}: ${guidesCount} guides, ${commandsCount} commands`);
+    res.json({ ok: true, targetDir, guidesCount, commandsCount, metadata });
+  } catch (err) {
+    res.status(500).json({ error: `Installation failed: ${err.message}` });
+  }
+});
+
+// POST /api/apm/launch-agent - Launch session with agent profile
+app.post('/api/apm/launch-agent', checkToken, (req, res) => {
+  const { agentId, workingDirectory, mode, nodeMemory } = req.body;
+  if (!agentId) return res.status(400).json({ error: 'agentId is required' });
+
+  const commandsDir = path.join(APM_TEMPLATES_DIR, 'commands');
+  if (!fs.existsSync(commandsDir)) {
+    return res.status(400).json({ error: 'APM templates not found' });
+  }
+
+  const files = fs.readdirSync(commandsDir).filter(f => f.startsWith('apm-') && f.endsWith('.md'));
+  const agentFile = files.find(f => {
+    const m = f.match(/^apm-(\d+)/);
+    return m && `apm-${m[1]}` === agentId;
+  });
+  if (!agentFile) return res.status(404).json({ error: 'Agent profile not found' });
+
+  let prompt = fs.readFileSync(path.join(commandsDir, agentFile), 'utf8');
+  // Remove YAML frontmatter
+  prompt = prompt.replace(/^---\s*\n[\s\S]*?\n---\s*\n/, '');
+
+  const cwd = workingDirectory || process.cwd();
+  if (!fs.existsSync(cwd)) {
+    return res.status(400).json({ error: 'Working directory does not exist' });
+  }
+
+  try {
+    const agentType = deriveAgentType(agentId);
+    const session = ptyManager.launchDirect({
+      prompt: prompt.trim(),
+      workingDirectory: cwd,
+      mode: mode || 'bypass',
+      nodeMemory: nodeMemory || null,
+      name: `APM ${agentType}`,
+    });
+    console.log(`[APM] Agent ${agentId} (${agentType}) launched in ${cwd}, session ${session.id}`);
+    res.status(201).json(session);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ─── Claude Code Agents (authenticated) ───
+
+const CLAUDE_AGENTS_DIR = path.join(os.homedir(), '.claude', 'agents');
+
+function parseClaudeAgentFile(filename) {
+  const filePath = path.join(CLAUDE_AGENTS_DIR, filename);
+  const raw = fs.readFileSync(filePath, 'utf8');
+  const stat = fs.statSync(filePath);
+  const frontmatter = parseYamlFrontmatter(raw);
+  const name = frontmatter.name || filename.replace('.md', '');
+
+  // Extract first sentence of description for short display
+  let shortDescription = '';
+  if (frontmatter.description) {
+    let desc = String(frontmatter.description);
+    // Strip surrounding quotes from YAML
+    if ((desc.startsWith('"') && desc.endsWith('"')) || (desc.startsWith("'") && desc.endsWith("'"))) {
+      desc = desc.slice(1, -1);
+    }
+    const firstSentence = desc.split(/(?<=[.!?])\s/)[0];
+    shortDescription = firstSentence.length > 200 ? firstSentence.slice(0, 200) + '...' : firstSentence;
+  }
+
+  return {
+    name,
+    filename,
+    model: frontmatter.model || 'sonnet',
+    color: frontmatter.color || 'blue',
+    memory: frontmatter.memory || 'none',
+    description: frontmatter.description || '',
+    shortDescription,
+    fileSize: stat.size,
+  };
+}
+
+// GET /api/claude-agents - List all Claude Code agents
+app.get('/api/claude-agents', checkToken, (req, res) => {
+  if (!fs.existsSync(CLAUDE_AGENTS_DIR)) {
+    return res.json({ agents: [], agentsDir: CLAUDE_AGENTS_DIR });
+  }
+  try {
+    const files = fs.readdirSync(CLAUDE_AGENTS_DIR)
+      .filter(f => f.endsWith('.md'))
+      .sort();
+    const agents = files.map(f => parseClaudeAgentFile(f));
+    res.json({ agents, agentsDir: CLAUDE_AGENTS_DIR });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/claude-agents/:name - Agent detail with full content
+app.get('/api/claude-agents/:name', checkToken, (req, res) => {
+  if (!fs.existsSync(CLAUDE_AGENTS_DIR)) {
+    return res.status(404).json({ error: 'Agents directory not found' });
+  }
+  const filename = req.params.name.endsWith('.md') ? req.params.name : req.params.name + '.md';
+  const filePath = path.join(CLAUDE_AGENTS_DIR, filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Agent not found' });
+  }
+  const agent = parseClaudeAgentFile(filename);
+  agent.content = fs.readFileSync(filePath, 'utf8');
+  res.json(agent);
+});
+
+// POST /api/claude-agents/launch - Launch a Claude Code agent
+app.post('/api/claude-agents/launch', checkToken, (req, res) => {
+  const { agentName, workingDirectory, mode, nodeMemory } = req.body;
+  if (!agentName) return res.status(400).json({ error: 'agentName is required' });
+
+  // Verify agent exists
+  if (fs.existsSync(CLAUDE_AGENTS_DIR)) {
+    const filename = agentName.endsWith('.md') ? agentName : agentName + '.md';
+    if (!fs.existsSync(path.join(CLAUDE_AGENTS_DIR, filename))) {
+      return res.status(404).json({ error: `Agent "${agentName}" not found in ${CLAUDE_AGENTS_DIR}` });
+    }
+  }
+
+  const cwd = workingDirectory || process.cwd();
+  if (!fs.existsSync(cwd)) {
+    return res.status(400).json({ error: 'Working directory does not exist' });
+  }
+
+  try {
+    const session = ptyManager.launchAgent({
+      agentName,
+      workingDirectory: cwd,
+      mode: mode || 'normal',
+      nodeMemory: nodeMemory || null,
+    });
+    console.log(`[AGENT] Claude agent "${agentName}" launched in ${cwd}, session ${session.id}`);
+    res.status(201).json(session);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ─── APM Direct Launch API (no auth, localhost only) ───
+
+app.post('/api/apm/launch', (req, res) => {
+  const ip = req.ip || req.connection.remoteAddress;
+  const allowed = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
+  if (!allowed.includes(ip)) {
+    return res.status(403).json({ error: 'APM launch only available from localhost' });
+  }
+
+  let { prompt, promptFile, workingDirectory, mode, nodeMemory, name } = req.body;
+
+  if (promptFile) {
+    try {
+      prompt = fs.readFileSync(promptFile, 'utf8');
+    } catch (err) {
+      return res.status(400).json({ error: `Cannot read prompt file: ${err.message}` });
+    }
+  }
+
+  if (!prompt) return res.status(400).json({ error: 'prompt or promptFile is required' });
+
+  try {
+    const session = ptyManager.launchDirect({ prompt, workingDirectory, mode, nodeMemory, name });
+    console.log(`[APM] Launched session ${session.id} (${name || 'direct'})`);
+    res.status(201).json(session);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/apm/sessions', (req, res) => {
+  const ip = req.ip || req.connection.remoteAddress;
+  const allowed = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
+  if (!allowed.includes(ip)) {
+    return res.status(403).json({ error: 'APM endpoint only available from localhost' });
+  }
+
+  const all = storage.getSessions();
+  const apmSessions = all.filter(s => s.profileName && s.profileName.startsWith('APM'));
+  res.json(apmSessions);
 });
 
 // ─── Protected routes below ───
@@ -272,7 +703,6 @@ app.get('/api/files/download', (req, res, next) => {
   }
 });
 
-const os = require('os');
 const uploadTmpDir = path.join(os.tmpdir(), 'claude-fm-uploads');
 if (!fs.existsSync(uploadTmpDir)) fs.mkdirSync(uploadTmpDir, { recursive: true });
 
@@ -653,7 +1083,6 @@ app.post('/api/github-cli/clone', async (req, res) => {
   const { repo, destDir } = req.body;
   if (!repo) return res.status(400).json({ error: 'repo is required (e.g. owner/repo-name)' });
 
-  const os = require('os');
   const repoName = repo.split('/').pop().replace(/\.git$/, '') || repo;
   const dest = destDir || path.join(os.homedir(), repoName);
 

@@ -137,6 +137,8 @@
       case 'files': renderFileManagerPage(content); break;
       case 'github-cli': renderGitHubCLIPage(content); break;
       case 'cline-cli': renderClineCliPage(content); break;
+      case 'claude-agents': renderClaudeAgentsPage(content); break;
+      case 'agent-profiles': renderAgentProfilesPage(content); break;
     }
   }
 

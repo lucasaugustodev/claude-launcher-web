@@ -10,6 +10,29 @@ const gitWatcher = require('./git-watcher');
 // Broadcast function set by server.js
 let _broadcast = () => {};
 
+// Ensure workspace is trusted in .claude.json before launching
+function ensureWorkspaceTrusted(cwd) {
+  try {
+    const claudeJsonPath = path.join(os.homedir(), '.claude.json');
+    let data = {};
+    if (fs.existsSync(claudeJsonPath)) {
+      data = JSON.parse(fs.readFileSync(claudeJsonPath, 'utf8'));
+    }
+    if (!data.projects) data.projects = {};
+
+    // Normalize path for lookup
+    const normalizedCwd = cwd.replace(/\\/g, '/');
+    if (!data.projects[normalizedCwd] || !data.projects[normalizedCwd].hasTrustDialogAccepted) {
+      if (!data.projects[normalizedCwd]) data.projects[normalizedCwd] = {};
+      data.projects[normalizedCwd].hasTrustDialogAccepted = true;
+      fs.writeFileSync(claudeJsonPath, JSON.stringify(data, null, 2));
+      console.log(`[TRUST] Auto-trusted workspace: ${normalizedCwd}`);
+    }
+  } catch (err) {
+    console.error(`[TRUST] Failed to auto-trust workspace: ${err.message}`);
+  }
+}
+
 // Active PTY handles: sessionId -> { pty, output, listeners, startedAt, pid }
 const handles = new Map();
 
@@ -203,6 +226,7 @@ async function launchSession(profileId) {
 
   const sessionId = uuid();
   let cwd = profile.workingDirectory || process.cwd();
+  ensureWorkspaceTrusted(cwd);
   const env = buildClaudeEnv(profile.nodeMemory);
 
   // If profile has a linked GitHub repo, clone/pull and use as cwd
@@ -273,6 +297,78 @@ async function launchSession(profileId) {
       _broadcast({ ...event, sessionId });
     });
   }
+
+  return session;
+}
+
+function launchAgent({ agentName, workingDirectory, mode, nodeMemory }) {
+  const sessionId = uuid();
+  let cwd = workingDirectory || process.cwd();
+  if (!fs.existsSync(cwd)) {
+    cwd = process.cwd();
+  }
+  ensureWorkspaceTrusted(cwd);
+  const env = buildClaudeEnv(nodeMemory);
+
+  const flags = ['--agent', agentName];
+  if (mode === 'bypass') flags.push('--dangerously-skip-permissions');
+
+  const shellAndArgs = buildClaudeCommand(flags, null);
+  const handle = spawnSession(sessionId, shellAndArgs, cwd, env);
+
+  const session = {
+    id: sessionId,
+    profileId: null,
+    profileName: `Agent: ${agentName}`,
+    mode: mode || 'normal',
+    workingDirectory: cwd,
+    startedAt: handle.startedAt,
+    endedAt: null,
+    durationSeconds: null,
+    exitCode: null,
+    status: 'running',
+    pid: handle.pid,
+    githubRepo: null,
+    syncStrategy: null,
+    watcherBranch: null,
+  };
+  storage.addSession(session);
+
+  return session;
+}
+
+function launchDirect({ prompt, workingDirectory, mode, nodeMemory, name }) {
+  const sessionId = uuid();
+  let cwd = workingDirectory || process.cwd();
+  if (!fs.existsSync(cwd)) {
+    cwd = process.cwd();
+  }
+  ensureWorkspaceTrusted(cwd);
+  const env = buildClaudeEnv(nodeMemory);
+
+  const flags = [];
+  if (mode === 'bypass') flags.push('--dangerously-skip-permissions');
+
+  const shellAndArgs = buildClaudeCommand(flags, prompt || null);
+  const handle = spawnSession(sessionId, shellAndArgs, cwd, env);
+
+  const session = {
+    id: sessionId,
+    profileId: null,
+    profileName: name || 'APM Direct',
+    mode: mode || 'normal',
+    workingDirectory: cwd,
+    startedAt: handle.startedAt,
+    endedAt: null,
+    durationSeconds: null,
+    exitCode: null,
+    status: 'running',
+    pid: handle.pid,
+    githubRepo: null,
+    syncStrategy: null,
+    watcherBranch: null,
+  };
+  storage.addSession(session);
 
   return session;
 }
@@ -543,7 +639,7 @@ function setBroadcast(fn) {
 }
 
 module.exports = {
-  launchSession, resumeSession, stopSession, sendInput, resizePty,
+  launchSession, launchDirect, launchAgent, resumeSession, stopSession, sendInput, resizePty,
   getActiveSessions, getSessionOutput,
   addListener, removeListener, stopAll, cleanupOrphaned,
   setBroadcast, spawnInteractive,

@@ -1947,3 +1947,627 @@ async function renderClineSessionHistory(section) {
     }));
   }
 }
+
+// ═══════════════════════════════════════════
+// APM Agent Profiles Page
+// ═══════════════════════════════════════════
+
+// ─── Claude Code Agents Page ───
+
+const _agentColorMap = {
+  blue: 'var(--accent)',
+  green: 'var(--success)',
+  cyan: '#94e2d5',
+  red: 'var(--danger)',
+  yellow: 'var(--warning)',
+};
+
+async function renderClaudeAgentsPage(container) {
+  container.innerHTML = '';
+
+  const header = el('div', { className: 'page-title' }, [
+    el('span', { textContent: 'Agentes Claude Code' }),
+    el('button', {
+      className: 'btn btn-sm',
+      textContent: 'Atualizar',
+      onClick: () => renderClaudeAgentsPage(container),
+    }),
+  ]);
+  container.appendChild(header);
+
+  const loadingEl = el('div', { className: 'empty-state', innerHTML: '<p>Carregando agentes...</p>' });
+  container.appendChild(loadingEl);
+
+  try {
+    const data = await API.getClaudeAgents();
+    container.removeChild(loadingEl);
+
+    // Info bar
+    const infoBar = el('div', { className: 'card', style: { marginBottom: '24px', padding: '12px 16px' } }, [
+      el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } }, [
+        el('span', {
+          className: 'status-tag status-completed',
+          textContent: `${(data.agents || []).length} agentes`,
+        }),
+        el('span', {
+          style: { color: 'var(--text-muted)', fontSize: '13px' },
+          textContent: data.agentsDir || '~/.claude/agents/',
+        }),
+      ]),
+    ]);
+    container.appendChild(infoBar);
+
+    const agents = data.agents || [];
+    if (agents.length === 0) {
+      container.appendChild(el('div', { className: 'empty-state', innerHTML:
+        '<p>Nenhum agente encontrado.<br>Crie arquivos <code>.md</code> em <code>~/.claude/agents/</code></p>'
+      }));
+      return;
+    }
+
+    // Agent grid
+    const grid = el('div', { className: 'card-grid' });
+
+    for (const agent of agents) {
+      const borderColor = _agentColorMap[agent.color] || 'var(--accent)';
+      const modelLabel = (agent.model || 'sonnet').toUpperCase();
+
+      const card = el('div', { className: 'card', style: { borderLeft: `3px solid ${borderColor}` } }, [
+        // Header row: name + model tag
+        el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' } }, [
+          el('div', { className: 'card-title', textContent: agent.name, style: { marginBottom: '0' } }),
+          el('span', {
+            className: 'status-tag',
+            textContent: modelLabel,
+            style: {
+              background: `${borderColor}33`,
+              color: borderColor,
+              fontSize: '10px',
+              fontWeight: '600',
+            },
+          }),
+        ]),
+        // Meta: color, memory
+        el('div', { className: 'card-meta', style: { marginBottom: '8px', fontSize: '12px' } }, [
+          el('span', {
+            textContent: agent.color,
+            style: { color: borderColor, marginRight: '12px' },
+          }),
+          el('span', {
+            textContent: `memory: ${agent.memory}`,
+            style: { color: 'var(--text-muted)' },
+          }),
+        ]),
+        // Short description
+        el('div', {
+          textContent: agent.shortDescription || '',
+          style: { fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px', lineHeight: '1.4' },
+        }),
+        // Actions
+        el('div', { className: 'card-actions' }, [
+          el('button', {
+            className: 'btn btn-success btn-sm',
+            textContent: 'Lancar',
+            onClick: () => showLaunchClaudeAgentModal(agent),
+          }),
+          el('button', {
+            className: 'btn btn-sm',
+            textContent: 'Ver Detalhes',
+            onClick: () => showClaudeAgentDetailModal(agent),
+          }),
+        ]),
+      ]);
+      grid.appendChild(card);
+    }
+
+    container.appendChild(grid);
+  } catch (err) {
+    if (loadingEl.parentNode) container.removeChild(loadingEl);
+    container.appendChild(el('div', { className: 'empty-state', innerHTML:
+      `<p style="color:var(--danger)">Erro ao carregar agentes: ${err.message}</p>`
+    }));
+  }
+}
+
+function showLaunchClaudeAgentModal(agent) {
+  const overlay = el('div', { className: 'modal-overlay' });
+  const modal = el('div', { className: 'modal' });
+
+  const _env = API.serverEnv || {};
+  const _home = _env.homeDir || '/root';
+  const borderColor = _agentColorMap[agent.color] || 'var(--accent)';
+
+  modal.innerHTML = `
+    <div class="modal-title" style="display:flex;align-items:center;gap:8px">
+      <span style="color:${borderColor}">&#9654;</span> Lancar ${agent.name}
+    </div>
+    <p style="color:var(--text-muted);font-size:13px;margin-bottom:16px">${agent.shortDescription || ''}</p>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:16px;font-family:monospace">
+      claude --agent ${agent.name} [--dangerously-skip-permissions]
+    </div>
+    <div class="form-group">
+      <label>Diretorio de Trabalho</label>
+      <input type="text" id="cagent-launch-cwd" value="${_home}" placeholder="${_home}">
+    </div>
+    <div class="form-group">
+      <label>Modo</label>
+      <select id="cagent-launch-mode">
+        <option value="bypass" selected>Bypass (sem pedir permissao)</option>
+        <option value="normal">Normal</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Node Memory MB (opcional)</label>
+      <input type="number" id="cagent-launch-mem" placeholder="Ex: 8192">
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="cagent-launch-cancel">Cancelar</button>
+      <button class="btn btn-primary" id="cagent-launch-go">Lancar Agente</button>
+    </div>
+  `;
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  modal.querySelector('#cagent-launch-cancel').onclick = () => overlay.remove();
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  modal.querySelector('#cagent-launch-go').onclick = async () => {
+    const cwd = modal.querySelector('#cagent-launch-cwd').value.trim();
+    const mode = modal.querySelector('#cagent-launch-mode').value;
+    const mem = parseInt(modal.querySelector('#cagent-launch-mem').value) || null;
+
+    if (!cwd) {
+      showToast('Diretorio de trabalho e obrigatorio', 'error');
+      return;
+    }
+
+    overlay.remove();
+
+    try {
+      const session = await API.launchClaudeAgent(agent.name, cwd, mode, mem);
+      showToast(`Agente "${agent.name}" lancado!`);
+      TerminalManager.open(session.id);
+      document.getElementById('terminal-title').textContent =
+        `Agent: ${agent.name} \u2014 ${session.id.slice(0, 8)}`;
+      updateActiveCount();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  };
+
+  setTimeout(() => modal.querySelector('#cagent-launch-cwd').focus(), 100);
+}
+
+async function showClaudeAgentDetailModal(agent) {
+  const overlay = el('div', { className: 'modal-overlay' });
+  const modal = el('div', { className: 'modal', style: { maxWidth: '700px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' } });
+
+  const borderColor = _agentColorMap[agent.color] || 'var(--accent)';
+
+  modal.innerHTML = `
+    <div class="modal-title" style="display:flex;align-items:center;gap:8px">
+      <span style="color:${borderColor}">&#9883;</span> ${agent.name}
+    </div>
+    <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <span class="status-tag" style="background:${borderColor}33;color:${borderColor};font-size:11px">${(agent.model || 'sonnet').toUpperCase()}</span>
+      <span class="status-tag" style="font-size:11px">color: ${agent.color}</span>
+      <span class="status-tag" style="font-size:11px">memory: ${agent.memory}</span>
+    </div>
+    <div style="flex:1;overflow:auto;margin-bottom:16px">
+      <pre style="white-space:pre-wrap;word-wrap:break-word;font-size:12px;line-height:1.5;color:var(--text-primary);background:var(--bg-secondary);padding:16px;border-radius:8px;max-height:none">Carregando...</pre>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="cagent-detail-close">Fechar</button>
+    </div>
+  `;
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  modal.querySelector('#cagent-detail-close').onclick = () => overlay.remove();
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  try {
+    const detail = await API.getClaudeAgent(agent.name);
+    const pre = modal.querySelector('pre');
+    // Remove YAML frontmatter for cleaner display
+    let body = detail.content || '';
+    body = body.replace(/^---\s*\n[\s\S]*?\n---\s*\n/, '');
+    pre.textContent = body.trim();
+  } catch (err) {
+    const pre = modal.querySelector('pre');
+    pre.textContent = `Erro ao carregar: ${err.message}`;
+    pre.style.color = 'var(--danger)';
+  }
+}
+
+// ─── APM Agent Profiles Page ───
+
+async function renderAgentProfilesPage(container) {
+  container.innerHTML = '';
+
+  const header = el('div', { className: 'page-title' }, [
+    el('span', { textContent: 'Perfis de Agentes (APM)' }),
+    el('button', {
+      className: 'btn btn-sm',
+      textContent: 'Atualizar',
+      onClick: () => renderAgentProfilesPage(container),
+    }),
+  ]);
+  container.appendChild(header);
+
+  const loadingEl = el('div', { className: 'empty-state', innerHTML: '<p>Carregando status do APM...</p>' });
+  container.appendChild(loadingEl);
+
+  try {
+    const [statusData, agentsData] = await Promise.all([
+      API.getApmStatus(),
+      API.getApmAgents(),
+    ]);
+
+    container.removeChild(loadingEl);
+
+    // Section 1: Status card
+    renderApmStatusCard(container, statusData);
+
+    if (!statusData.installed) {
+      container.appendChild(el('div', { className: 'empty-state', innerHTML:
+        '<p>Templates APM nao encontrados.<br>Verifique se a pasta <code>apm-templates/</code> existe no servidor.</p>'
+      }));
+      return;
+    }
+
+    // Section 2: Agent profiles grid
+    renderAgentProfilesGrid(container, agentsData.agents || []);
+
+    // Section 3: Project APM status
+    await renderProjectApmSection(container);
+  } catch (err) {
+    if (loadingEl.parentNode) container.removeChild(loadingEl);
+    container.appendChild(el('div', { className: 'empty-state', innerHTML:
+      `<p style="color:var(--danger)">Erro ao carregar APM: ${err.message}</p>`
+    }));
+  }
+}
+
+function renderApmStatusCard(container, status) {
+  const statusTag = status.installed
+    ? el('span', { className: 'status-tag status-completed', textContent: 'Disponivel' })
+    : el('span', { className: 'status-tag status-crashed', textContent: 'Nao encontrado' });
+
+  const infoText = status.installed
+    ? `${status.commandsCount} agentes, ${status.guidesCount} guias`
+    : 'Templates APM nao encontrados';
+
+  const card = el('div', { className: 'card', style: { marginBottom: '24px' } }, [
+    el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' } }, [
+      statusTag,
+      el('span', { textContent: infoText, style: { color: 'var(--text-muted)', fontSize: '14px' } }),
+    ]),
+    ...(status.installed ? [
+      el('div', { className: 'card-meta', style: { fontSize: '12px', color: 'var(--text-muted)' } }, [
+        el('span', { textContent: 'Templates: ' }),
+        el('code', { textContent: status.templatesDir }),
+      ]),
+    ] : []),
+  ]);
+
+  container.appendChild(card);
+}
+
+function renderAgentProfilesGrid(container, agents) {
+  const categoryLabels = { initiate: 'Iniciacao', handover: 'Handover', delegate: 'Delegacao' };
+  const categoryColors = { initiate: 'var(--accent)', handover: 'var(--warning)', delegate: 'var(--success)' };
+
+  // Group by category
+  const grouped = {};
+  for (const a of agents) {
+    if (!grouped[a.category]) grouped[a.category] = [];
+    grouped[a.category].push(a);
+  }
+
+  for (const cat of ['initiate', 'handover', 'delegate']) {
+    if (!grouped[cat]) continue;
+
+    container.appendChild(el('h3', {
+      textContent: categoryLabels[cat] || cat,
+      style: { fontSize: '16px', marginTop: '20px', marginBottom: '12px', color: categoryColors[cat] },
+    }));
+
+    const grid = el('div', { className: 'card-grid' });
+
+    for (const agent of grouped[cat]) {
+      const card = el('div', { className: 'card' }, [
+        el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' } }, [
+          el('div', { className: 'card-title', textContent: agent.agentType, style: { marginBottom: '0' } }),
+          el('span', {
+            className: 'status-tag',
+            textContent: `#${agent.priority}`,
+            style: { background: 'rgba(137,180,250,0.2)', color: 'var(--accent)', fontSize: '10px' },
+          }),
+        ]),
+        el('div', {
+          textContent: agent.description,
+          style: { fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px', lineHeight: '1.4' },
+        }),
+        el('div', { className: 'card-meta', style: { marginBottom: '12px' } }, [
+          el('span', {}, [el('span', { textContent: 'Comando: ' }), el('code', { textContent: agent.commandName })]),
+          el('span', { textContent: ' ' }),
+          el('span', {}, [el('span', { textContent: 'Arquivo: ' }), el('code', { textContent: agent.filename })]),
+        ]),
+        el('div', { className: 'card-actions' }, [
+          el('button', {
+            className: 'btn btn-success btn-sm',
+            textContent: 'Lancar',
+            onClick: () => showLaunchAgentModal(agent),
+          }),
+          el('button', {
+            className: 'btn btn-sm',
+            textContent: 'Ver Prompt',
+            onClick: () => showAgentPromptModal(agent),
+          }),
+        ]),
+      ]);
+      grid.appendChild(card);
+    }
+
+    container.appendChild(grid);
+  }
+}
+
+function showLaunchAgentModal(agent) {
+  const overlay = el('div', { className: 'modal-overlay' });
+  const modal = el('div', { className: 'modal' });
+
+  const _env = API.serverEnv || {};
+  const _home = _env.homeDir || '/root';
+
+  modal.innerHTML = `
+    <div class="modal-title">Lancar ${agent.agentType}</div>
+    <p style="color:var(--text-muted);font-size:13px;margin-bottom:16px">${agent.description}</p>
+    <div class="form-group">
+      <label>Diretorio de Trabalho</label>
+      <input type="text" id="apm-launch-cwd" value="${_home}" placeholder="${_home}">
+      <small style="color:var(--text-muted);display:block;margin-top:4px">O projeto deve ter o APM instalado (.apm/ e .claude/commands/)</small>
+    </div>
+    <div class="form-group">
+      <label>Modo</label>
+      <select id="apm-launch-mode">
+        <option value="bypass" selected>Bypass (recomendado para APM)</option>
+        <option value="normal">Normal</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Node Memory MB (opcional)</label>
+      <input type="number" id="apm-launch-mem" placeholder="Ex: 8192">
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="apm-launch-cancel">Cancelar</button>
+      <button class="btn btn-primary" id="apm-launch-go">Lancar Agente</button>
+    </div>
+  `;
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  modal.querySelector('#apm-launch-cancel').onclick = () => overlay.remove();
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  modal.querySelector('#apm-launch-go').onclick = async () => {
+    const cwd = modal.querySelector('#apm-launch-cwd').value.trim();
+    const mode = modal.querySelector('#apm-launch-mode').value;
+    const mem = parseInt(modal.querySelector('#apm-launch-mem').value) || null;
+
+    if (!cwd) {
+      showToast('Diretorio de trabalho e obrigatorio', 'error');
+      return;
+    }
+
+    overlay.remove();
+
+    try {
+      const session = await API.launchAgent(agent.id, cwd, mode, mem);
+      showToast(`${agent.agentType} lancado!`);
+      TerminalManager.open(session.id);
+      document.getElementById('terminal-title').textContent =
+        `APM ${agent.agentType} \u2014 ${session.id.slice(0, 8)}`;
+      updateActiveCount();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  };
+
+  setTimeout(() => modal.querySelector('#apm-launch-cwd').focus(), 100);
+}
+
+async function showAgentPromptModal(agent) {
+  const overlay = el('div', { className: 'modal-overlay' });
+  const modal = el('div', { className: 'modal', style: { maxWidth: '700px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' } });
+
+  modal.appendChild(el('div', { className: 'modal-title', textContent: `${agent.agentType} \u2014 Prompt` }));
+
+  const contentArea = el('pre', {
+    style: {
+      flex: '1', overflow: 'auto', maxHeight: '60vh', marginBottom: '16px',
+      borderRadius: 'var(--radius)', border: '1px solid var(--border)',
+      background: 'var(--bg-primary)', padding: '16px', fontSize: '12px',
+      lineHeight: '1.5', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+      color: 'var(--text-primary)',
+    },
+  });
+  contentArea.appendChild(el('code', { textContent: 'Carregando...' }));
+  modal.appendChild(contentArea);
+
+  modal.appendChild(el('div', { className: 'modal-actions' }, [
+    el('button', { className: 'btn', textContent: 'Fechar', onClick: () => overlay.remove() }),
+  ]));
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  try {
+    const data = await API.getApmAgent(agent.id);
+    contentArea.innerHTML = '';
+    contentArea.appendChild(el('code', { textContent: data.content }));
+  } catch (err) {
+    contentArea.innerHTML = '';
+    contentArea.appendChild(el('code', { textContent: 'Erro: ' + err.message, style: { color: 'var(--danger)' } }));
+  }
+}
+
+async function renderProjectApmSection(container) {
+  container.appendChild(el('h3', {
+    textContent: 'Projetos com APM',
+    style: { fontSize: '16px', marginTop: '28px', marginBottom: '12px' },
+  }));
+
+  let projectsData;
+  try {
+    projectsData = await API.getApmProjects();
+  } catch (err) {
+    container.appendChild(el('p', {
+      textContent: 'Erro ao verificar projetos: ' + err.message,
+      style: { color: 'var(--danger)', fontSize: '13px' },
+    }));
+    return;
+  }
+
+  const projects = projectsData.projects;
+
+  // Install row
+  const dirInput = el('input', {
+    type: 'text',
+    placeholder: 'Diretorio do projeto para instalar APM...',
+    style: {
+      flex: '1', padding: '8px 12px', background: 'var(--bg-primary)',
+      border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+      color: 'var(--text-primary)', fontSize: '14px',
+    },
+  });
+
+  const installRow = el('div', { style: { display: 'flex', gap: '8px', marginBottom: '16px', alignItems: 'center' } }, [
+    dirInput,
+    el('button', {
+      className: 'btn btn-primary',
+      textContent: 'Instalar APM',
+      onClick: () => showInstallApmModal(dirInput.value.trim(), container),
+    }),
+  ]);
+  container.appendChild(installRow);
+
+  if (projects.length === 0) {
+    container.appendChild(el('div', { className: 'empty-state', innerHTML:
+      '<p>Nenhum projeto com perfis cadastrados.<br>Crie perfis com diretorios de trabalho para detectar APM.</p>'
+    }));
+    return;
+  }
+
+  // Table
+  const tableContainer = el('div', { className: 'table-container' });
+  const table = el('table');
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Projeto</th>
+        <th>Diretorio</th>
+        <th>APM</th>
+        <th>Comandos</th>
+        <th>Acoes</th>
+      </tr>
+    </thead>
+  `;
+
+  const tbody = el('tbody');
+  for (const p of projects) {
+    const tr = el('tr');
+
+    tr.appendChild(el('td', { textContent: p.profileName }));
+    tr.appendChild(el('td', { textContent: p.path, style: { fontFamily: 'monospace', fontSize: '12px' } }));
+
+    const tdApm = el('td');
+    if (p.apmInstalled) {
+      tdApm.appendChild(el('span', { className: 'status-tag status-completed', textContent: `Sim (${p.guidesCount} guias)` }));
+    } else {
+      tdApm.appendChild(el('span', { className: 'status-tag status-stopped', textContent: 'Nao' }));
+    }
+    tr.appendChild(tdApm);
+
+    const tdCmd = el('td');
+    if (p.commandsInstalled) {
+      tdCmd.appendChild(el('span', { className: 'status-tag status-completed', textContent: `Sim (${p.commandsCount})` }));
+    } else {
+      tdCmd.appendChild(el('span', { className: 'status-tag status-stopped', textContent: 'Nao' }));
+    }
+    tr.appendChild(tdCmd);
+
+    const tdActions = el('td', { className: 'history-actions' });
+    if (!p.apmInstalled) {
+      tdActions.appendChild(el('button', {
+        className: 'btn btn-primary btn-sm',
+        textContent: 'Instalar',
+        onClick: () => showInstallApmModal(p.path, container),
+      }));
+    } else {
+      tdActions.appendChild(el('button', {
+        className: 'btn btn-sm',
+        textContent: 'Atualizar',
+        onClick: () => showInstallApmModal(p.path, container, true),
+      }));
+    }
+    tr.appendChild(tdActions);
+    tbody.appendChild(tr);
+  }
+
+  table.appendChild(tbody);
+  tableContainer.appendChild(table);
+  container.appendChild(tableContainer);
+}
+
+function showInstallApmModal(targetDir, pageContainer, isUpdate = false) {
+  if (!targetDir) {
+    showToast('Informe o diretorio do projeto', 'error');
+    return;
+  }
+
+  const overlay = el('div', { className: 'modal-overlay' });
+  const modal = el('div', { className: 'modal' }, [
+    el('div', { className: 'modal-title', textContent: isUpdate ? 'Atualizar APM' : 'Instalar APM' }),
+    el('p', {
+      textContent: isUpdate
+        ? 'Isto vai sobrescrever os guias e comandos existentes com as versoes mais recentes (traduzidas) do launcher.'
+        : 'Isto vai copiar a estrutura APM e os comandos traduzidos para o diretorio do projeto.',
+      style: { fontSize: '13px', color: 'var(--text-muted)', marginBottom: '12px' },
+    }),
+    el('div', { style: { fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' } }, [
+      el('div', {}, [el('span', { textContent: 'Destino: ' }), el('code', { textContent: targetDir })]),
+      el('div', { style: { marginTop: '4px' } }, [el('span', { textContent: 'Origem: ' }), el('code', { textContent: 'apm-templates/ (do launcher)' })]),
+    ]),
+    el('div', { className: 'modal-actions' }, [
+      el('button', { className: 'btn', textContent: 'Cancelar', onClick: () => overlay.remove() }),
+      el('button', {
+        className: 'btn btn-primary',
+        textContent: isUpdate ? 'Atualizar' : 'Instalar',
+        onClick: async () => {
+          overlay.remove();
+          try {
+            const result = await API.installApm(targetDir, isUpdate);
+            showToast(`APM ${isUpdate ? 'atualizado' : 'instalado'}: ${result.guidesCount} guias, ${result.commandsCount} comandos`);
+            renderAgentProfilesPage(pageContainer);
+          } catch (err) {
+            if (err.message && err.message.includes('already installed')) {
+              showInstallApmModal(targetDir, pageContainer, true);
+            } else {
+              showToast(err.message, 'error');
+            }
+          }
+        },
+      }),
+    ]),
+  ]);
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+}
