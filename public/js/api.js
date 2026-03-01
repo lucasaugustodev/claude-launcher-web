@@ -94,11 +94,11 @@ const API = {
   },
 
   updateProfile(id, data) {
-    return this.fetch(`/api/profiles/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+    return this.fetch(`api/profiles/${id}`, { method: 'PUT', body: JSON.stringify(data) });
   },
 
   deleteProfile(id) {
-    return this.fetch(`/api/profiles/${id}`, { method: 'DELETE' });
+    return this.fetch(`api/profiles/${id}`, { method: 'DELETE' });
   },
 
   // ─── Sessions ───
@@ -112,15 +112,15 @@ const API = {
   },
 
   stopSession(id) {
-    return this.fetch(`/api/sessions/${id}/stop`, { method: 'POST' });
+    return this.fetch(`api/sessions/${id}/stop`, { method: 'POST' });
   },
 
   getSessionOutputData(id) {
-    return this.fetch(`/api/sessions/${id}/output`);
+    return this.fetch(`api/sessions/${id}/output`);
   },
 
   resumeSession(id) {
-    return this.fetch(`/api/sessions/${id}/resume`, { method: 'POST' });
+    return this.fetch(`api/sessions/${id}/resume`, { method: 'POST' });
   },
 
   clearHistory() {
@@ -144,7 +144,7 @@ const API = {
   },
 
   syncSessionToGitHub(id) {
-    return this.fetch(`/api/github/sync/${id}`, { method: 'POST' });
+    return this.fetch(`api/github/sync/${id}`, { method: 'POST' });
   },
 
   disconnectGitHub() {
@@ -164,7 +164,7 @@ const API = {
   },
 
   getWatcherStatus(sessionId) {
-    return this.fetch(`/api/sessions/${sessionId}/watcher-status`);
+    return this.fetch(`api/sessions/${sessionId}/watcher-status`);
   },
 
   // ─── GitHub CLI ───
