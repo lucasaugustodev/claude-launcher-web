@@ -442,4 +442,45 @@ const API = {
       body: JSON.stringify({ agentId, workingDirectory, mode, nodeMemory, streamJson }),
     });
   },
+
+  // ─── Marketplace ───
+
+  getMarketplaceCatalog() {
+    return this.fetch('api/marketplace/catalog');
+  },
+
+  installAgents(packId, agentNames = null) {
+    return this.fetch('api/marketplace/install-agents', {
+      method: 'POST',
+      body: JSON.stringify({ packId, agentNames }),
+    });
+  },
+
+  uninstallAgent(agentName) {
+    return this.fetch('api/marketplace/uninstall-agent', {
+      method: 'POST',
+      body: JSON.stringify({ agentName }),
+    });
+  },
+
+  installPlugin(pluginId) {
+    return this.fetch('api/marketplace/install-plugin', {
+      method: 'POST',
+      body: JSON.stringify({ pluginId }),
+    });
+  },
+
+  uninstallPlugin(pluginId) {
+    return this.fetch('api/marketplace/uninstall-plugin', {
+      method: 'POST',
+      body: JSON.stringify({ pluginId }),
+    });
+  },
+
+  refreshAgentPack(packId) {
+    return this.fetch('api/marketplace/refresh-agents', {
+      method: 'POST',
+      body: JSON.stringify({ packId }),
+    });
+  },
 };

@@ -595,6 +595,359 @@ app.get('/api/apm/sessions', (req, res) => {
   res.json(apmSessions);
 });
 
+// ─── Marketplace API (authenticated) ───
+
+const MARKETPLACE_CATALOG = {
+  agentPacks: [
+    {
+      id: 'lucasaugustodev-agents',
+      name: 'Lucas Augusto Agent Pack',
+      repo: 'lucasaugustodev/claude-agents',
+      description: '8 agentes especializados para Claude Code (documentador, CI/CD, file guardian, live-node, playwright, PM, windows automation, cline executor)',
+    },
+  ],
+  plugins: [
+    {
+      id: 'claude-mem',
+      name: 'Claude Memory (claude-mem)',
+      repo: 'thedotmack/claude-mem',
+      marketplace: 'thedotmack',
+      description: 'Sistema de memoria persistente entre sessoes - preserva contexto automaticamente',
+    },
+  ],
+};
+
+// Helper: detect installed agents
+function getInstalledAgents() {
+  if (!fs.existsSync(CLAUDE_AGENTS_DIR)) return [];
+  return fs.readdirSync(CLAUDE_AGENTS_DIR).filter(f => f.endsWith('.md'));
+}
+
+// Helper: detect installed plugins
+function getInstalledPlugins() {
+  const regPath = path.join(os.homedir(), '.claude', 'plugins', 'installed_plugins.json');
+  if (!fs.existsSync(regPath)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(regPath, 'utf8')).plugins || {};
+  } catch { return {}; }
+}
+
+// GET /api/marketplace/catalog - Catalog with install status
+app.get('/api/marketplace/catalog', checkToken, async (req, res) => {
+  try {
+    const installedAgentFiles = getInstalledAgents();
+    const installedPlugins = getInstalledPlugins();
+
+    // Build agent packs with agent list from GitHub (cached for 5min)
+    const packs = [];
+    for (const pack of MARKETPLACE_CATALOG.agentPacks) {
+      const agents = [];
+      // Try to read from local clone cache first
+      const cacheDir = path.join(os.tmpdir(), 'cl-marketplace', pack.id);
+      if (fs.existsSync(cacheDir)) {
+        const files = fs.readdirSync(cacheDir).filter(f => f.endsWith('.md') && f !== 'README.md');
+        for (const f of files) {
+          try {
+            const raw = fs.readFileSync(path.join(cacheDir, f), 'utf8');
+            const fm = parseYamlFrontmatter(raw);
+            agents.push({
+              filename: f,
+              name: fm.name || f.replace('.md', ''),
+              model: fm.model || 'sonnet',
+              color: fm.color || 'blue',
+              description: fm.description ? String(fm.description).replace(/^["']|["']$/g, '').split(/(?<=[.!?])\s/)[0].slice(0, 150) : '',
+              installed: installedAgentFiles.includes(f),
+            });
+          } catch {}
+        }
+      }
+      packs.push({ ...pack, agents, cached: agents.length > 0 });
+    }
+
+    // Build plugins with install status
+    const plugins = MARKETPLACE_CATALOG.plugins.map(p => {
+      const key = `${p.id}@${p.marketplace}`;
+      const entry = installedPlugins[key];
+      return {
+        ...p,
+        installed: !!entry,
+        version: entry ? entry[0]?.version : null,
+      };
+    });
+
+    res.json({ agentPacks: packs, plugins });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/marketplace/install-agents - Install agents from a pack
+app.post('/api/marketplace/install-agents', checkToken, async (req, res) => {
+  const { packId, agentNames } = req.body;
+  if (!packId) return res.status(400).json({ error: 'packId is required' });
+
+  const pack = MARKETPLACE_CATALOG.agentPacks.find(p => p.id === packId);
+  if (!pack) return res.status(404).json({ error: 'Pack not found' });
+
+  const cacheDir = path.join(os.tmpdir(), 'cl-marketplace', packId);
+
+  try {
+    // Clone or pull the repo
+    if (!fs.existsSync(cacheDir)) {
+      fs.mkdirSync(cacheDir, { recursive: true });
+      await new Promise((resolve, reject) => {
+        const proc = require('child_process').spawn('git', ['clone', '--depth', '1', `https://github.com/${pack.repo}.git`, cacheDir], { stdio: 'pipe' });
+        proc.on('close', code => code === 0 ? resolve() : reject(new Error(`git clone failed (${code})`)));
+        proc.on('error', reject);
+      });
+    } else {
+      // Pull latest
+      await new Promise((resolve, reject) => {
+        const proc = require('child_process').spawn('git', ['pull'], { cwd: cacheDir, stdio: 'pipe' });
+        proc.on('close', () => resolve());
+        proc.on('error', () => resolve()); // ignore pull errors
+      });
+    }
+
+    // Ensure agents dir exists
+    if (!fs.existsSync(CLAUDE_AGENTS_DIR)) {
+      fs.mkdirSync(CLAUDE_AGENTS_DIR, { recursive: true });
+    }
+
+    // Get available .md files (excluding README, .gitignore etc)
+    const allFiles = fs.readdirSync(cacheDir).filter(f => f.endsWith('.md') && f !== 'README.md');
+    const filesToInstall = agentNames ? allFiles.filter(f => agentNames.includes(f) || agentNames.includes(f.replace('.md', ''))) : allFiles;
+
+    const installed = [];
+    for (const f of filesToInstall) {
+      const src = path.join(cacheDir, f);
+      const dest = path.join(CLAUDE_AGENTS_DIR, f);
+      fs.copyFileSync(src, dest);
+      installed.push(f);
+    }
+
+    console.log(`[MARKETPLACE] Installed ${installed.length} agents from ${pack.repo}`);
+    res.json({ installed, total: allFiles.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/marketplace/uninstall-agent - Remove an agent file
+app.post('/api/marketplace/uninstall-agent', checkToken, (req, res) => {
+  const { agentName } = req.body;
+  if (!agentName) return res.status(400).json({ error: 'agentName is required' });
+
+  const filename = agentName.endsWith('.md') ? agentName : agentName + '.md';
+  const filePath = path.join(CLAUDE_AGENTS_DIR, filename);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Agent not found' });
+  }
+
+  fs.unlinkSync(filePath);
+  console.log(`[MARKETPLACE] Uninstalled agent: ${filename}`);
+  res.json({ ok: true, removed: filename });
+});
+
+// POST /api/marketplace/install-plugin - Install a plugin
+app.post('/api/marketplace/install-plugin', checkToken, async (req, res) => {
+  const { pluginId } = req.body;
+  if (!pluginId) return res.status(400).json({ error: 'pluginId is required' });
+
+  const plugin = MARKETPLACE_CATALOG.plugins.find(p => p.id === pluginId);
+  if (!plugin) return res.status(404).json({ error: 'Plugin not found' });
+
+  const claudeDir = path.join(os.homedir(), '.claude');
+  const pluginsDir = path.join(claudeDir, 'plugins');
+  const marketplaceDir = path.join(pluginsDir, 'marketplaces', plugin.marketplace);
+
+  try {
+    // Step 1: Clone marketplace source
+    if (!fs.existsSync(marketplaceDir)) {
+      fs.mkdirSync(marketplaceDir, { recursive: true });
+      await new Promise((resolve, reject) => {
+        const proc = require('child_process').spawn('git', ['clone', '--depth', '1', `https://github.com/${plugin.repo}.git`, marketplaceDir], { stdio: 'pipe' });
+        proc.on('close', code => code === 0 ? resolve() : reject(new Error(`git clone failed (${code})`)));
+        proc.on('error', reject);
+      });
+    }
+
+    // Step 2: Find plugin.json in the cloned repo
+    let pluginJsonPath = null;
+    let pluginSrcDir = null;
+    const searchDirs = [marketplaceDir, path.join(marketplaceDir, 'plugin')];
+    for (const dir of searchDirs) {
+      const candidate = path.join(dir, '.claude-plugin', 'plugin.json');
+      if (fs.existsSync(candidate)) {
+        pluginJsonPath = candidate;
+        pluginSrcDir = dir;
+        break;
+      }
+    }
+    if (!pluginJsonPath) {
+      return res.status(500).json({ error: 'Could not find .claude-plugin/plugin.json in repo' });
+    }
+
+    const pluginMeta = JSON.parse(fs.readFileSync(pluginJsonPath, 'utf8'));
+    const version = pluginMeta.version || '0.0.0';
+
+    // Step 3: Copy to cache
+    const cacheDir = path.join(pluginsDir, 'cache', plugin.marketplace, plugin.id, version);
+    if (!fs.existsSync(cacheDir)) {
+      fs.mkdirSync(cacheDir, { recursive: true });
+      // Copy all plugin files
+      const copyRecursive = (src, dest) => {
+        if (fs.statSync(src).isDirectory()) {
+          if (path.basename(src) === '.git' || path.basename(src) === 'node_modules') return;
+          fs.mkdirSync(dest, { recursive: true });
+          for (const f of fs.readdirSync(src)) {
+            copyRecursive(path.join(src, f), path.join(dest, f));
+          }
+        } else {
+          fs.copyFileSync(src, dest);
+        }
+      };
+      copyRecursive(pluginSrcDir, cacheDir);
+    }
+
+    // Step 4: Install dependencies
+    const pkgJson = path.join(cacheDir, 'package.json');
+    if (fs.existsSync(pkgJson)) {
+      await new Promise((resolve, reject) => {
+        // Try bun first, fall back to npm
+        const cmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+        const proc = require('child_process').spawn(cmd, ['install', '--production'], { cwd: cacheDir, stdio: 'pipe' });
+        proc.on('close', code => code === 0 ? resolve() : reject(new Error(`npm install failed (${code})`)));
+        proc.on('error', reject);
+      });
+    }
+
+    // Step 5: Create metadata files
+    const installVersion = { version, bun: null, uv: null, installedAt: new Date().toISOString() };
+    fs.writeFileSync(path.join(cacheDir, '.install-version'), JSON.stringify(installVersion, null, 2));
+    fs.writeFileSync(path.join(cacheDir, '.cli-installed'), new Date().toISOString());
+
+    // Step 6: Update installed_plugins.json
+    const regPath = path.join(pluginsDir, 'installed_plugins.json');
+    let registry = { version: 2, plugins: {} };
+    if (fs.existsSync(regPath)) {
+      try { registry = JSON.parse(fs.readFileSync(regPath, 'utf8')); } catch {}
+    }
+    const pluginKey = `${plugin.id}@${plugin.marketplace}`;
+    registry.plugins[pluginKey] = [{
+      scope: 'user',
+      installPath: cacheDir,
+      version,
+      installedAt: new Date().toISOString(),
+      lastUpdated: new Date().toISOString(),
+    }];
+    fs.writeFileSync(regPath, JSON.stringify(registry, null, 2));
+
+    // Step 7: Update known_marketplaces.json
+    const mkPath = path.join(pluginsDir, 'known_marketplaces.json');
+    let marketplaces = {};
+    if (fs.existsSync(mkPath)) {
+      try { marketplaces = JSON.parse(fs.readFileSync(mkPath, 'utf8')); } catch {}
+    }
+    marketplaces[plugin.marketplace] = {
+      source: { source: 'github', repo: plugin.repo },
+      installLocation: marketplaceDir,
+      lastUpdated: new Date().toISOString(),
+    };
+    fs.writeFileSync(mkPath, JSON.stringify(marketplaces, null, 2));
+
+    // Step 8: Update settings.json enabledPlugins
+    const settingsPath = path.join(claudeDir, 'settings.json');
+    let settings = {};
+    if (fs.existsSync(settingsPath)) {
+      try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch {}
+    }
+    if (!settings.enabledPlugins) settings.enabledPlugins = {};
+    settings.enabledPlugins[pluginKey] = true;
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+
+    console.log(`[MARKETPLACE] Installed plugin: ${plugin.id} v${version}`);
+    res.json({ ok: true, version, installPath: cacheDir });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/marketplace/uninstall-plugin - Remove a plugin
+app.post('/api/marketplace/uninstall-plugin', checkToken, (req, res) => {
+  const { pluginId } = req.body;
+  if (!pluginId) return res.status(400).json({ error: 'pluginId is required' });
+
+  const plugin = MARKETPLACE_CATALOG.plugins.find(p => p.id === pluginId);
+  if (!plugin) return res.status(404).json({ error: 'Plugin not found' });
+
+  const claudeDir = path.join(os.homedir(), '.claude');
+  const pluginsDir = path.join(claudeDir, 'plugins');
+  const pluginKey = `${plugin.id}@${plugin.marketplace}`;
+
+  try {
+    // Remove from installed_plugins.json
+    const regPath = path.join(pluginsDir, 'installed_plugins.json');
+    if (fs.existsSync(regPath)) {
+      const registry = JSON.parse(fs.readFileSync(regPath, 'utf8'));
+      delete registry.plugins[pluginKey];
+      fs.writeFileSync(regPath, JSON.stringify(registry, null, 2));
+    }
+
+    // Disable in settings.json
+    const settingsPath = path.join(claudeDir, 'settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      if (settings.enabledPlugins) {
+        delete settings.enabledPlugins[pluginKey];
+        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+      }
+    }
+
+    // Remove cache dir
+    const cacheBase = path.join(pluginsDir, 'cache', plugin.marketplace, plugin.id);
+    if (fs.existsSync(cacheBase)) {
+      fs.rmSync(cacheBase, { recursive: true, force: true });
+    }
+
+    console.log(`[MARKETPLACE] Uninstalled plugin: ${plugin.id}`);
+    res.json({ ok: true, removed: pluginKey });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/marketplace/refresh-agents - Force refresh agent pack cache
+app.post('/api/marketplace/refresh-agents', checkToken, async (req, res) => {
+  const { packId } = req.body;
+  if (!packId) return res.status(400).json({ error: 'packId is required' });
+
+  const pack = MARKETPLACE_CATALOG.agentPacks.find(p => p.id === packId);
+  if (!pack) return res.status(404).json({ error: 'Pack not found' });
+
+  const cacheDir = path.join(os.tmpdir(), 'cl-marketplace', packId);
+
+  try {
+    // Remove old cache and re-clone
+    if (fs.existsSync(cacheDir)) {
+      fs.rmSync(cacheDir, { recursive: true, force: true });
+    }
+    fs.mkdirSync(cacheDir, { recursive: true });
+    await new Promise((resolve, reject) => {
+      const proc = require('child_process').spawn('git', ['clone', '--depth', '1', `https://github.com/${pack.repo}.git`, cacheDir], { stdio: 'pipe' });
+      proc.on('close', code => code === 0 ? resolve() : reject(new Error(`git clone failed (${code})`)));
+      proc.on('error', reject);
+    });
+
+    const files = fs.readdirSync(cacheDir).filter(f => f.endsWith('.md') && f !== 'README.md');
+    console.log(`[MARKETPLACE] Refreshed pack ${packId}: ${files.length} agents`);
+    res.json({ ok: true, agentCount: files.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Protected routes below ───
 app.use('/api/profiles', checkToken);
 app.use('/api/sessions', checkToken);

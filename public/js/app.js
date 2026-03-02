@@ -313,6 +313,227 @@ function LoginPage({ onDone }) {
   `;
 }
 
+// ─── Marketplace Page (Preact) ───
+
+function MarketplacePage() {
+  const [catalog, setCatalog] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState({});
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await API.getMarketplaceCatalog();
+      setCatalog(data);
+    } catch (err) {
+      showToast('Erro ao carregar catalogo: ' + err.message, 'error');
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const setBusyKey = (key, val) => setBusy(prev => ({ ...prev, [key]: val }));
+
+  // Refresh agent pack from GitHub
+  const refreshPack = async (packId) => {
+    setBusyKey('refresh-' + packId, true);
+    try {
+      await API.refreshAgentPack(packId);
+      showToast('Catalogo atualizado do GitHub');
+      await load();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+    setBusyKey('refresh-' + packId, false);
+  };
+
+  // Install all agents from pack
+  const installAll = async (packId) => {
+    setBusyKey('all-' + packId, true);
+    try {
+      const result = await API.installAgents(packId);
+      showToast(`${result.installed.length} agentes instalados!`);
+      await load();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+    setBusyKey('all-' + packId, false);
+  };
+
+  // Install single agent
+  const installAgent = async (packId, filename) => {
+    setBusyKey('agent-' + filename, true);
+    try {
+      await API.installAgents(packId, [filename]);
+      showToast('Agente instalado!');
+      await load();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+    setBusyKey('agent-' + filename, false);
+  };
+
+  // Uninstall single agent
+  const uninstallAgent = async (filename) => {
+    setBusyKey('agent-' + filename, true);
+    try {
+      await API.uninstallAgent(filename);
+      showToast('Agente removido');
+      await load();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+    setBusyKey('agent-' + filename, false);
+  };
+
+  // Install plugin
+  const installPlugin = async (pluginId) => {
+    setBusyKey('plugin-' + pluginId, true);
+    try {
+      const result = await API.installPlugin(pluginId);
+      showToast(`Plugin instalado! v${result.version}`);
+      await load();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+    setBusyKey('plugin-' + pluginId, false);
+  };
+
+  // Uninstall plugin
+  const uninstallPlugin = async (pluginId) => {
+    if (!confirm('Remover este plugin?')) return;
+    setBusyKey('plugin-' + pluginId, true);
+    try {
+      await API.uninstallPlugin(pluginId);
+      showToast('Plugin removido');
+      await load();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+    setBusyKey('plugin-' + pluginId, false);
+  };
+
+  if (loading && !catalog) {
+    return html`<div class="empty-state"><p>Carregando catalogo...</p></div>`;
+  }
+
+  if (!catalog) {
+    return html`<div class="empty-state"><p>Erro ao carregar catalogo</p></div>`;
+  }
+
+  const modelColors = { opus: '#cba6f7', sonnet: '#89b4fa', haiku: '#a6e3a1' };
+
+  return html`
+    <div class="page-title">
+      <span>Marketplace</span>
+      <button class="btn btn-sm" onClick=${load}>Atualizar</button>
+    </div>
+
+    ${catalog.agentPacks.map(pack => html`
+      <div key=${pack.id} style="margin-bottom:32px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+          <h3 style="margin:0;font-size:18px">${pack.name}</h3>
+          <span class="status-tag ${pack.cached ? 'completed' : 'stopped'}" style="font-size:11px">
+            ${pack.cached ? pack.agents.length + ' agentes' : 'Nao carregado'}
+          </span>
+          <div style="display:flex;gap:6px;margin-left:auto">
+            <button class="btn btn-sm" onClick=${() => refreshPack(pack.id)}
+              disabled=${busy['refresh-' + pack.id]}>
+              ${busy['refresh-' + pack.id] ? 'Baixando...' : 'Baixar do GitHub'}
+            </button>
+            ${pack.cached && html`
+              <button class="btn btn-primary btn-sm" onClick=${() => installAll(pack.id)}
+                disabled=${busy['all-' + pack.id]}>
+                ${busy['all-' + pack.id] ? 'Instalando...' : 'Instalar Todos'}
+              </button>
+            `}
+          </div>
+        </div>
+        <p style="color:var(--text-muted);font-size:13px;margin-bottom:12px">
+          Repo: <a href=${'https://github.com/' + pack.repo} target="_blank" style="color:var(--accent)">${pack.repo}</a>
+          ${' — ' + pack.description}
+        </p>
+
+        ${pack.cached && pack.agents.length > 0 ? html`
+          <div class="card-grid">
+            ${pack.agents.map(agent => html`
+              <div key=${agent.filename} class="card" style="position:relative">
+                <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                  <span>${agent.name}</span>
+                  <span class="status-tag" style=${'font-size:10px;background:' + (modelColors[agent.model] || '#89b4fa') + ';color:#1e1e2e'}>
+                    ${(agent.model || 'sonnet').toUpperCase()}
+                  </span>
+                  ${agent.installed && html`
+                    <span class="status-tag completed" style="font-size:10px">Instalado</span>
+                  `}
+                </div>
+                <div class="card-meta">
+                  <span>${agent.description || 'Sem descricao'}</span>
+                </div>
+                <div class="card-actions">
+                  ${agent.installed ? html`
+                    <button class="btn btn-danger btn-sm" onClick=${() => uninstallAgent(agent.filename)}
+                      disabled=${busy['agent-' + agent.filename]}>
+                      ${busy['agent-' + agent.filename] ? '...' : 'Remover'}
+                    </button>
+                  ` : html`
+                    <button class="btn btn-success btn-sm" onClick=${() => installAgent(pack.id, agent.filename)}
+                      disabled=${busy['agent-' + agent.filename]}>
+                      ${busy['agent-' + agent.filename] ? 'Instalando...' : 'Instalar'}
+                    </button>
+                  `}
+                </div>
+              </div>
+            `)}
+          </div>
+        ` : !pack.cached && html`
+          <div class="empty-state" style="padding:24px">
+            <p>Clique em "Baixar do GitHub" para carregar a lista de agentes</p>
+          </div>
+        `}
+      </div>
+    `)}
+
+    <div style="margin-bottom:32px">
+      <h3 style="margin-bottom:16px;font-size:18px">Plugins</h3>
+      <div class="card-grid">
+        ${catalog.plugins.map(plugin => html`
+          <div key=${plugin.id} class="card">
+            <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span>${plugin.name}</span>
+              ${plugin.installed ? html`
+                <span class="status-tag completed" style="font-size:10px">v${plugin.version}</span>
+              ` : html`
+                <span class="status-tag stopped" style="font-size:10px">Nao instalado</span>
+              `}
+            </div>
+            <div class="card-meta">
+              <span>${plugin.description}</span>
+              <span>
+                <a href=${'https://github.com/' + plugin.repo} target="_blank" style="color:var(--accent);font-size:12px">${plugin.repo}</a>
+              </span>
+            </div>
+            <div class="card-actions">
+              ${plugin.installed ? html`
+                <button class="btn btn-danger btn-sm" onClick=${() => uninstallPlugin(plugin.id)}
+                  disabled=${busy['plugin-' + plugin.id]}>
+                  ${busy['plugin-' + plugin.id] ? '...' : 'Remover'}
+                </button>
+              ` : html`
+                <button class="btn btn-success btn-sm" onClick=${() => installPlugin(plugin.id)}
+                  disabled=${busy['plugin-' + plugin.id]}>
+                  ${busy['plugin-' + plugin.id] ? 'Instalando...' : 'Instalar'}
+                </button>
+              `}
+            </div>
+          </div>
+        `)}
+      </div>
+    </div>
+  `;
+}
+
 // ─── Content Router ───
 
 function ContentRouter({ page }) {
@@ -320,6 +541,7 @@ function ContentRouter({ page }) {
     case 'profiles': return html`<${ProfilesPage} />`;
     case 'active': return html`<${ActivePage} />`;
     case 'history': return html`<${HistoryPage} />`;
+    case 'marketplace': return html`<${MarketplacePage} />`;
     case 'files': return html`<${LegacyPage} renderFn=${renderFileManagerPage} />`;
     case 'github-cli': return html`<${LegacyPage} renderFn=${renderGitHubCLIPage} />`;
     case 'cline-cli': return html`<${LegacyPage} renderFn=${renderClineCliPage} />`;
