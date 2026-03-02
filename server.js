@@ -9,6 +9,7 @@ const githubSync = require('./github-sync');
 const gitWatcher = require('./git-watcher');
 const githubCli = require('./github-cli');
 const clineCli = require('./cline-cli');
+const scheduler = require('./scheduler');
 const multer = require('multer');
 const fs = require('fs');
 const { execFile } = require('child_process');
@@ -1526,6 +1527,129 @@ app.delete('/api/cline-sessions/history', (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── Schedules API (authenticated) ───
+
+app.get('/api/schedules', checkToken, (req, res) => {
+  const schedules = storage.getSchedules();
+  const status = scheduler.getStatus();
+  // Enrich with running status
+  const enriched = schedules.map(s => ({
+    ...s,
+    isRunning: status.jobs.some(j => j.scheduleId === s.id && j.running),
+  }));
+  res.json(enriched);
+});
+
+app.post('/api/schedules', checkToken, (req, res) => {
+  const { name, type, cron: cronExpr, intervalMinutes, runAt, targetType, targetId, targetConfig, prompt } = req.body;
+
+  if (!name || !type || !targetType || !targetId) {
+    return res.status(400).json({ error: 'name, type, targetType and targetId are required' });
+  }
+
+  if (type === 'cron' && !cronExpr) {
+    return res.status(400).json({ error: 'cron expression is required for cron type' });
+  }
+
+  if (type === 'interval' && !intervalMinutes) {
+    return res.status(400).json({ error: 'intervalMinutes is required for interval type' });
+  }
+
+  if (type === 'once' && !runAt) {
+    return res.status(400).json({ error: 'runAt is required for once type' });
+  }
+
+  const { v4: uuidv4 } = require('uuid');
+  const schedule = {
+    id: uuidv4(),
+    name,
+    enabled: true,
+    type,
+    cron: cronExpr || null,
+    intervalMinutes: intervalMinutes || null,
+    runAt: runAt || null,
+    targetType,
+    targetId,
+    targetConfig: targetConfig || {},
+    prompt: prompt || null,
+    lastRun: null,
+    nextRun: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  storage.addSchedule(schedule);
+  scheduler.registerJob(schedule);
+
+  res.json(schedule);
+});
+
+// Log routes MUST come before :id routes to avoid "log" being matched as :id
+app.get('/api/schedules/log', checkToken, (req, res) => {
+  const limit = parseInt(req.query.limit) || 100;
+  const log = storage.getScheduleLog(limit);
+  res.json(log);
+});
+
+app.delete('/api/schedules/log', checkToken, (req, res) => {
+  storage.clearScheduleLog();
+  res.json({ ok: true });
+});
+
+app.put('/api/schedules/:id', checkToken, (req, res) => {
+  const existing = storage.getSchedule(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Schedule not found' });
+
+  const updates = { ...req.body, updatedAt: new Date().toISOString() };
+  delete updates.id;
+  delete updates.createdAt;
+
+  const updated = storage.updateSchedule(req.params.id, updates);
+
+  // Re-register job with new config
+  scheduler.unregisterJob(req.params.id);
+  if (updated.enabled) {
+    scheduler.registerJob(updated);
+  }
+
+  res.json(updated);
+});
+
+app.delete('/api/schedules/:id', checkToken, (req, res) => {
+  const existing = storage.getSchedule(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Schedule not found' });
+
+  scheduler.unregisterJob(req.params.id);
+  storage.deleteSchedule(req.params.id);
+
+  res.json({ ok: true });
+});
+
+app.post('/api/schedules/:id/toggle', checkToken, (req, res) => {
+  const toggled = storage.toggleSchedule(req.params.id);
+  if (!toggled) return res.status(404).json({ error: 'Schedule not found' });
+
+  if (toggled.enabled) {
+    scheduler.registerJob(toggled);
+  } else {
+    scheduler.unregisterJob(req.params.id);
+  }
+
+  res.json(toggled);
+});
+
+app.post('/api/schedules/:id/run-now', checkToken, async (req, res) => {
+  const existing = storage.getSchedule(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Schedule not found' });
+
+  try {
+    await scheduler.executeSchedule(req.params.id);
+    res.json({ ok: true, message: `Schedule "${existing.name}" triggered` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── WebSocket Server ───
 
 const wss = new WebSocketServer({ server, path: '/ws' });
@@ -1635,6 +1759,9 @@ if (cleanedCline > 0) {
   console.log(`Cleaned ${cleanedCline} orphaned Cline sessions`);
 }
 
+// Initialize scheduler
+scheduler.init(storage, ptyManager, broadcastToAll);
+
 // Pre-warm Cline CLI status cache so first tab visit is instant
 clineCli.getStatus().then(s => {
   console.log(`[CLINE] Status cached: installed=${s.installed}, v=${s.version}, configured=${s.configured}`);
@@ -1648,6 +1775,7 @@ server.listen(PORT, '0.0.0.0', () => {
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\nShutting down...');
+  scheduler.shutdown();
   const stopped = ptyManager.stopAll();
   if (stopped > 0) console.log(`Stopped ${stopped} active sessions`);
   server.close();
@@ -1655,6 +1783,7 @@ process.on('SIGINT', () => {
 });
 
 process.on('SIGTERM', () => {
+  scheduler.shutdown();
   const stopped = ptyManager.stopAll();
   server.close();
   process.exit(0);

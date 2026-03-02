@@ -163,10 +163,95 @@ function saveGitHubConfig(config) {
   writeJSON('github-config.json', config);
 }
 
+// ─── Schedules ───
+
+function getSchedules() {
+  return readJSON('schedules.json', []);
+}
+
+function getSchedule(id) {
+  return getSchedules().find(s => s.id === id) || null;
+}
+
+function addSchedule(schedule) {
+  const schedules = getSchedules();
+  schedules.push(schedule);
+  writeJSON('schedules.json', schedules);
+  return schedule;
+}
+
+function updateSchedule(id, updates) {
+  const schedules = getSchedules();
+  const idx = schedules.findIndex(s => s.id === id);
+  if (idx === -1) return null;
+  schedules[idx] = { ...schedules[idx], ...updates, id };
+  writeJSON('schedules.json', schedules);
+  return schedules[idx];
+}
+
+function deleteSchedule(id) {
+  const schedules = getSchedules().filter(s => s.id !== id);
+  writeJSON('schedules.json', schedules);
+}
+
+function toggleSchedule(id) {
+  const schedules = getSchedules();
+  const idx = schedules.findIndex(s => s.id === id);
+  if (idx === -1) return null;
+  schedules[idx].enabled = !schedules[idx].enabled;
+  schedules[idx].updatedAt = new Date().toISOString();
+  writeJSON('schedules.json', schedules);
+  return schedules[idx];
+}
+
+// ─── Schedule Log ───
+
+const SCHEDULE_LOG_CAP = 500;
+
+function getScheduleLog(limit = 100) {
+  const log = readJSON('schedule-log.json', []);
+  // Most recent first
+  log.sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+  return log.slice(0, limit);
+}
+
+function addScheduleLogEntry(entry) {
+  const log = readJSON('schedule-log.json', []);
+  log.push(entry);
+  // Cap at SCHEDULE_LOG_CAP, remove oldest
+  if (log.length > SCHEDULE_LOG_CAP) {
+    log.sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+    log.length = SCHEDULE_LOG_CAP;
+  }
+  writeJSON('schedule-log.json', log);
+  return entry;
+}
+
+function updateScheduleLogEntry(id, updates) {
+  const log = readJSON('schedule-log.json', []);
+  const idx = log.findIndex(e => e.id === id);
+  if (idx === -1) return null;
+  log[idx] = { ...log[idx], ...updates };
+  writeJSON('schedule-log.json', log);
+  return log[idx];
+}
+
+function clearScheduleLog() {
+  writeJSON('schedule-log.json', []);
+}
+
+function getScheduleLogBySchedule(scheduleId) {
+  const log = readJSON('schedule-log.json', []);
+  return log.filter(e => e.scheduleId === scheduleId)
+    .sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+}
+
 module.exports = {
   getProfiles, saveProfiles, getProfile, addProfile, updateProfile, deleteProfile,
   getSessions, saveSessions, getSession, addSession, updateSession, clearHistory,
   getClineSessions, saveClineSessions, getClineSession, addClineSession, updateClineSession, clearClineHistory,
   getUsers, saveUsers, findUser, addUser, hasUsers,
   getGitHubConfig, saveGitHubConfig,
+  getSchedules, getSchedule, addSchedule, updateSchedule, deleteSchedule, toggleSchedule,
+  getScheduleLog, addScheduleLogEntry, updateScheduleLogEntry, clearScheduleLog, getScheduleLogBySchedule,
 };

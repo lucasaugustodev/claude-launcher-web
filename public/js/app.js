@@ -534,6 +534,210 @@ function MarketplacePage() {
   `;
 }
 
+// ─── Schedules Page (Preact) ───
+
+function SchedulePage() {
+  const [tab, setTab] = useState('schedules');
+  const [schedules, setSchedules] = useState(null);
+  const [log, setLog] = useState(null);
+  const [busy, setBusy] = useState({});
+
+  const loadSchedules = useCallback(async () => {
+    try { setSchedules(await API.getSchedules()); }
+    catch { setSchedules([]); }
+  }, []);
+
+  const loadLog = useCallback(async () => {
+    try { setLog(await API.getScheduleLog()); }
+    catch { setLog([]); }
+  }, []);
+
+  useEffect(() => {
+    loadSchedules();
+    loadLog();
+  }, [loadSchedules, loadLog]);
+
+  // WebSocket events for real-time updates
+  useEffect(() => {
+    const onStarted = () => { loadSchedules(); loadLog(); };
+    const onCompleted = () => { loadSchedules(); loadLog(); };
+    const onSkipped = (msg) => { showToast('Agendamento "' + (msg.scheduleName || '') + '" pulado (sessao anterior ativa)', 'error'); loadLog(); };
+    API.on('schedule:started', onStarted);
+    API.on('schedule:completed', onCompleted);
+    API.on('schedule:skipped', onSkipped);
+    return () => {
+      API.off('schedule:started', onStarted);
+      API.off('schedule:completed', onCompleted);
+      API.off('schedule:skipped', onSkipped);
+    };
+  }, [loadSchedules, loadLog]);
+
+  const typeLabel = (s) => {
+    if (s.type === 'interval') return 'A cada ' + s.intervalMinutes + ' min';
+    if (s.type === 'once') return 'Uma vez: ' + new Date(s.runAt).toLocaleString();
+    if (s.type === 'cron' && s.cron) {
+      const cp = s.cron.trim().split(/\s+/);
+      if (cp.length === 5) {
+        if (cp[0] === '0' && /^\*\/\d+$/.test(cp[1]) && cp[2] === '*' && cp[3] === '*' && cp[4] === '*')
+          return 'A cada ' + cp[1].replace('*/', '') + 'h';
+        const dias = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
+        const hora = (cp[1] || '0').padStart(2, '0') + ':' + (cp[0] || '0').padStart(2, '0');
+        if (cp[2] === '*' && cp[3] === '*' && cp[4] === '*')
+          return 'Diario as ' + hora;
+        if (cp[2] === '*' && cp[3] === '*' && cp[4] !== '*')
+          return (dias[parseInt(cp[4])] || cp[4]) + ' as ' + hora;
+        if (cp[2] !== '*' && cp[3] === '*' && cp[4] === '*')
+          return 'Dia ' + cp[2] + ' as ' + hora;
+      }
+      return 'Cron: ' + s.cron;
+    }
+    return s.type;
+  };
+
+  const targetLabel = (s) => {
+    if (s.targetType === 'profile') return 'Perfil';
+    if (s.targetType === 'agent') return 'Agente';
+    if (s.targetType === 'apm') return 'APM';
+    return s.targetType;
+  };
+
+  const statusBadge = (status) => {
+    const colors = { completed: '#a6e3a1', failed: '#f38ba8', skipped: '#f9e2af', running: '#89b4fa' };
+    return html`<span style="color:${colors[status] || '#cdd6f4'};font-weight:600">${status}</span>`;
+  };
+
+  const formatDuration = (start, end) => {
+    if (!start || !end) return '-';
+    const ms = new Date(end) - new Date(start);
+    const s = Math.round(ms / 1000);
+    if (s < 60) return s + 's';
+    return Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+  };
+
+  return html`
+    <div class="page-title">
+      <span>Agendamentos</span>
+      <button class="btn btn-primary" onClick=${() => {
+        showScheduleModal(null, async (data) => {
+          try {
+            await API.createSchedule(data);
+            showToast('Agendamento criado!');
+            loadSchedules();
+          } catch (err) { showToast(err.message, 'error'); }
+        });
+      }}>+ Novo Agendamento</button>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button class="btn btn-sm ${tab === 'schedules' ? 'btn-primary' : ''}" onClick=${() => setTab('schedules')}>Agendamentos</button>
+      <button class="btn btn-sm ${tab === 'log' ? 'btn-primary' : ''}" onClick=${() => { setTab('log'); loadLog(); }}>Log de Execucoes</button>
+    </div>
+
+    ${tab === 'schedules' ? html`
+      ${!schedules
+        ? html`<div class="empty-state"><p>Carregando...</p></div>`
+        : schedules.length === 0
+          ? html`<div class="empty-state"><p>Nenhum agendamento criado.</p></div>`
+          : html`<div class="card-grid">
+              ${schedules.map(s => html`
+                <div class="card" key=${s.id} style="border-left:3px solid ${s.enabled ? (s.isRunning ? '#89b4fa' : '#a6e3a1') : '#585b70'}">
+                  <div class="card-title" style="display:flex;align-items:center;gap:8px">
+                    ${s.isRunning ? html`<span style="color:#89b4fa">&#9654;</span>` : null}
+                    ${s.name}
+                    <span style="font-size:11px;color:${s.enabled ? '#a6e3a1' : '#585b70'};margin-left:auto">${s.enabled ? 'Ativo' : 'Inativo'}</span>
+                  </div>
+                  <div class="card-meta">
+                    <span>${targetLabel(s)}: ${s.targetId}</span>
+                    <span>${typeLabel(s)}</span>
+                    ${s.lastRun ? html`<span>Ultima exec: ${new Date(s.lastRun).toLocaleString()}</span>` : null}
+                  </div>
+                  <div class="card-actions">
+                    <button class="btn btn-sm ${s.enabled ? 'btn-danger' : 'btn-success'}" disabled=${busy[s.id]}
+                      onClick=${async () => {
+                        setBusy(b => ({ ...b, [s.id]: true }));
+                        try {
+                          await API.toggleSchedule(s.id);
+                          showToast(s.enabled ? 'Desativado' : 'Ativado');
+                          await loadSchedules();
+                        } catch (err) { showToast(err.message, 'error'); }
+                        setBusy(b => ({ ...b, [s.id]: false }));
+                      }}>${s.enabled ? 'Desativar' : 'Ativar'}</button>
+                    <button class="btn btn-sm btn-success" disabled=${busy[s.id] || s.isRunning}
+                      onClick=${async () => {
+                        setBusy(b => ({ ...b, [s.id]: true }));
+                        try {
+                          await API.runScheduleNow(s.id);
+                          showToast('Executando "' + s.name + '"');
+                          await loadSchedules();
+                        } catch (err) { showToast(err.message, 'error'); }
+                        setBusy(b => ({ ...b, [s.id]: false }));
+                      }}>Executar Agora</button>
+                    <button class="btn btn-sm" onClick=${() => {
+                      showScheduleModal(s, async (data) => {
+                        try {
+                          await API.updateSchedule(s.id, data);
+                          showToast('Agendamento atualizado!');
+                          loadSchedules();
+                        } catch (err) { showToast(err.message, 'error'); }
+                      });
+                    }}>Editar</button>
+                    <button class="btn btn-danger btn-sm" onClick=${async () => {
+                      if (!confirm('Excluir agendamento "' + s.name + '"?')) return;
+                      try {
+                        await API.deleteSchedule(s.id);
+                        showToast('Agendamento excluido');
+                        loadSchedules();
+                      } catch (err) { showToast(err.message, 'error'); }
+                    }}>Excluir</button>
+                  </div>
+                </div>
+              `)}
+            </div>`
+      }
+    ` : html`
+      <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+        <button class="btn btn-sm btn-danger" onClick=${async () => {
+          if (!confirm('Limpar todo o log de execucoes?')) return;
+          try {
+            await API.clearScheduleLog();
+            showToast('Log limpo');
+            loadLog();
+          } catch (err) { showToast(err.message, 'error'); }
+        }}>Limpar Log</button>
+      </div>
+      ${!log
+        ? html`<div class="empty-state"><p>Carregando...</p></div>`
+        : log.length === 0
+          ? html`<div class="empty-state"><p>Nenhuma execucao registrada.</p></div>`
+          : html`<div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;font-size:13px">
+                <thead>
+                  <tr style="border-bottom:1px solid #45475a;text-align:left">
+                    <th style="padding:8px">Data/Hora</th>
+                    <th style="padding:8px">Agendamento</th>
+                    <th style="padding:8px">Target</th>
+                    <th style="padding:8px">Status</th>
+                    <th style="padding:8px">Duracao</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${log.map(entry => html`
+                    <tr key=${entry.id} style="border-bottom:1px solid #313244">
+                      <td style="padding:8px;white-space:nowrap">${new Date(entry.startedAt).toLocaleString()}</td>
+                      <td style="padding:8px">${entry.scheduleName}</td>
+                      <td style="padding:8px">${entry.targetName || entry.targetType}</td>
+                      <td style="padding:8px">${statusBadge(entry.status)}</td>
+                      <td style="padding:8px">${formatDuration(entry.startedAt, entry.completedAt)}</td>
+                    </tr>
+                  `)}
+                </tbody>
+              </table>
+            </div>`
+      }
+    `}
+  `;
+}
+
 // ─── Content Router ───
 
 function ContentRouter({ page }) {
@@ -542,6 +746,7 @@ function ContentRouter({ page }) {
     case 'active': return html`<${ActivePage} />`;
     case 'history': return html`<${HistoryPage} />`;
     case 'marketplace': return html`<${MarketplacePage} />`;
+    case 'schedules': return html`<${SchedulePage} />`;
     case 'files': return html`<${LegacyPage} renderFn=${renderFileManagerPage} />`;
     case 'github-cli': return html`<${LegacyPage} renderFn=${renderGitHubCLIPage} />`;
     case 'cline-cli': return html`<${LegacyPage} renderFn=${renderClineCliPage} />`;

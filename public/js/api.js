@@ -353,6 +353,9 @@ const API = {
       if (msg.type === 'watcher-pr') this._emit('watcher:pr', msg);
       if (msg.type === 'cline-start') this._emit('watcher:cline-start', msg);
       if (msg.type === 'cline-done') this._emit('watcher:cline-done', msg);
+      if (msg.type === 'schedule:started') this._emit('schedule:started', msg);
+      if (msg.type === 'schedule:completed') this._emit('schedule:completed', msg);
+      if (msg.type === 'schedule:skipped') this._emit('schedule:skipped', msg);
     };
 
     this._ws.onclose = () => {
@@ -482,5 +485,40 @@ const API = {
       method: 'POST',
       body: JSON.stringify({ packId }),
     });
+  },
+
+  // ─── Schedules ───
+
+  getSchedules() {
+    return this.fetch('api/schedules');
+  },
+
+  createSchedule(data) {
+    return this.fetch('api/schedules', { method: 'POST', body: JSON.stringify(data) });
+  },
+
+  updateSchedule(id, data) {
+    return this.fetch(`api/schedules/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+  },
+
+  deleteSchedule(id) {
+    return this.fetch(`api/schedules/${id}`, { method: 'DELETE' });
+  },
+
+  toggleSchedule(id) {
+    return this.fetch(`api/schedules/${id}/toggle`, { method: 'POST' });
+  },
+
+  runScheduleNow(id) {
+    return this.fetch(`api/schedules/${id}/run-now`, { method: 'POST' });
+  },
+
+  getScheduleLog(limit) {
+    const qs = limit ? '?limit=' + limit : '';
+    return this.fetch('api/schedules/log' + qs);
+  },
+
+  clearScheduleLog() {
+    return this.fetch('api/schedules/log', { method: 'DELETE' });
   },
 };

@@ -168,6 +168,295 @@ function showProfileModal(profile = null, onSave) {
 
 // (HistoryPage migrated to Preact in app.js)
 
+// ─── Schedule Modal ───
+
+function showScheduleModal(schedule = null, onSave) {
+  const isEdit = !!schedule;
+
+  // Detect frequency type from existing schedule for pre-selection
+  let freq = 'daily';
+  let freqMinutes = 30, freqHours = 1, freqTime = '09:00', freqWeekday = '1', freqMonthday = '1', freqCron = '', freqRunAt = '';
+  if (schedule) {
+    if (schedule.type === 'interval') {
+      freq = 'minutes';
+      freqMinutes = schedule.intervalMinutes || 30;
+    } else if (schedule.type === 'once') {
+      freq = 'once';
+      freqRunAt = schedule.runAt ? new Date(schedule.runAt).toISOString().slice(0, 16) : '';
+    } else if (schedule.type === 'cron') {
+      const cp = (schedule.cron || '').trim().split(/\s+/);
+      if (cp.length === 5) {
+        if (cp[0] === '0' && /^\*\/\d+$/.test(cp[1]) && cp[2] === '*' && cp[3] === '*' && cp[4] === '*') {
+          freq = 'hours'; freqHours = parseInt(cp[1].replace('*/', '')) || 1;
+        } else if (cp[2] === '*' && cp[3] === '*' && cp[4] === '*') {
+          freq = 'daily'; freqTime = (cp[1] || '9').padStart(2, '0') + ':' + (cp[0] || '0').padStart(2, '0');
+        } else if (cp[2] === '*' && cp[3] === '*' && cp[4] !== '*') {
+          freq = 'weekly'; freqTime = (cp[1] || '9').padStart(2, '0') + ':' + (cp[0] || '0').padStart(2, '0'); freqWeekday = cp[4];
+        } else if (cp[2] !== '*' && cp[3] === '*' && cp[4] === '*') {
+          freq = 'monthly'; freqTime = (cp[1] || '9').padStart(2, '0') + ':' + (cp[0] || '0').padStart(2, '0'); freqMonthday = cp[2];
+        } else {
+          freq = 'cron'; freqCron = schedule.cron;
+        }
+      } else {
+        freq = 'cron'; freqCron = schedule.cron || '';
+      }
+    }
+  }
+
+  const overlay = el('div', { className: 'modal-overlay' });
+  const modal = el('div', { className: 'modal' });
+
+  modal.innerHTML = `
+    <div class="modal-title">${isEdit ? 'Editar Agendamento' : 'Novo Agendamento'}</div>
+    <div class="form-group">
+      <label>Nome</label>
+      <input type="text" id="sch-name" value="${schedule?.name || ''}" placeholder="Ex: Deploy diario">
+    </div>
+    <div class="form-group">
+      <label>Repetir</label>
+      <select id="sch-freq">
+        <option value="minutes" ${freq === 'minutes' ? 'selected' : ''}>A cada X minutos</option>
+        <option value="hours" ${freq === 'hours' ? 'selected' : ''}>A cada X horas</option>
+        <option value="daily" ${freq === 'daily' ? 'selected' : ''}>Diariamente</option>
+        <option value="weekly" ${freq === 'weekly' ? 'selected' : ''}>Semanalmente</option>
+        <option value="monthly" ${freq === 'monthly' ? 'selected' : ''}>Mensalmente</option>
+        <option value="once" ${freq === 'once' ? 'selected' : ''}>Uma vez</option>
+        <option value="cron" ${freq === 'cron' ? 'selected' : ''}>Cron (avancado)</option>
+      </select>
+    </div>
+    <div class="form-group" id="sch-freq-minutes" style="display:none">
+      <label>A cada quantos minutos?</label>
+      <input type="number" id="sch-val-minutes" value="${freqMinutes}" min="1" max="1440">
+    </div>
+    <div class="form-group" id="sch-freq-hours" style="display:none">
+      <label>A cada quantas horas?</label>
+      <input type="number" id="sch-val-hours" value="${freqHours}" min="1" max="23">
+    </div>
+    <div class="form-group" id="sch-freq-daily" style="display:none">
+      <label>Horario</label>
+      <input type="time" id="sch-val-daily-time" value="${freqTime}">
+    </div>
+    <div class="form-group" id="sch-freq-weekly" style="display:none">
+      <label>Dia da semana</label>
+      <select id="sch-val-weekday">
+        <option value="0" ${freqWeekday === '0' ? 'selected' : ''}>Domingo</option>
+        <option value="1" ${freqWeekday === '1' ? 'selected' : ''}>Segunda</option>
+        <option value="2" ${freqWeekday === '2' ? 'selected' : ''}>Terca</option>
+        <option value="3" ${freqWeekday === '3' ? 'selected' : ''}>Quarta</option>
+        <option value="4" ${freqWeekday === '4' ? 'selected' : ''}>Quinta</option>
+        <option value="5" ${freqWeekday === '5' ? 'selected' : ''}>Sexta</option>
+        <option value="6" ${freqWeekday === '6' ? 'selected' : ''}>Sabado</option>
+      </select>
+      <label style="margin-top:8px">Horario</label>
+      <input type="time" id="sch-val-weekly-time" value="${freqTime}">
+    </div>
+    <div class="form-group" id="sch-freq-monthly" style="display:none">
+      <label>Dia do mes</label>
+      <input type="number" id="sch-val-monthday" value="${freqMonthday}" min="1" max="31">
+      <label style="margin-top:8px">Horario</label>
+      <input type="time" id="sch-val-monthly-time" value="${freqTime}">
+    </div>
+    <div class="form-group" id="sch-freq-once" style="display:none">
+      <label>Data/Hora</label>
+      <input type="datetime-local" id="sch-runat" value="${freqRunAt}">
+    </div>
+    <div class="form-group" id="sch-freq-cron" style="display:none">
+      <label>Expressao Cron</label>
+      <input type="text" id="sch-cron" value="${freqCron}" placeholder="0 9 * * *">
+      <small style="color:var(--text-muted);display:block;margin-top:4px">Exemplos: "0 9 * * *" (9h diario), "*/30 * * * *" (cada 30min)</small>
+    </div>
+    <div class="form-group">
+      <label>Tipo de Target</label>
+      <select id="sch-target-type">
+        <option value="profile" ${(!schedule || schedule.targetType === 'profile') ? 'selected' : ''}>Perfil</option>
+        <option value="agent" ${schedule?.targetType === 'agent' ? 'selected' : ''}>Agente Claude</option>
+        <option value="apm" ${schedule?.targetType === 'apm' ? 'selected' : ''}>Agente APM</option>
+      </select>
+    </div>
+    <div class="form-group" id="sch-profile-group">
+      <label>Perfil</label>
+      <select id="sch-profile-id">
+        <option value="">Carregando...</option>
+      </select>
+    </div>
+    <div class="form-group" id="sch-agent-group" style="display:none">
+      <label>Agente</label>
+      <select id="sch-agent-id">
+        <option value="">Carregando...</option>
+      </select>
+    </div>
+    <div class="form-group" id="sch-apm-group" style="display:none">
+      <label>Agente APM</label>
+      <select id="sch-apm-id">
+        <option value="">Carregando...</option>
+      </select>
+    </div>
+    <div class="form-group" id="sch-workdir-group" style="display:none">
+      <label>Diretorio de Trabalho</label>
+      <input type="text" id="sch-workdir" value="${schedule?.targetConfig?.workingDirectory || ''}" placeholder="C:\\Users\\...">
+    </div>
+    <div class="form-group" id="sch-mode-group" style="display:none">
+      <label>Modo</label>
+      <select id="sch-mode">
+        <option value="normal" ${(!schedule?.targetConfig?.mode || schedule?.targetConfig?.mode === 'normal') ? 'selected' : ''}>Normal</option>
+        <option value="bypass" ${schedule?.targetConfig?.mode === 'bypass' ? 'selected' : ''}>Bypass</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Prompt / Instrucao</label>
+      <textarea id="sch-prompt" rows="3" placeholder="Ex: Analise o repositorio e faca um commit com as melhorias" style="width:100%;resize:vertical;font-family:inherit;font-size:13px;padding:8px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px">${schedule?.prompt || ''}</textarea>
+      <small style="color:var(--text-muted);display:block;margin-top:4px">Instrucao enviada ao Claude quando o agendamento executar</small>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="sch-cancel">Cancelar</button>
+      <button class="btn btn-primary" id="sch-save">${isEdit ? 'Salvar' : 'Criar'}</button>
+    </div>
+  `;
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('#sch-cancel').onclick = () => overlay.remove();
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  // Toggle frequency-specific fields
+  const freqSelect = modal.querySelector('#sch-freq');
+  function updateFreqFields() {
+    const f = freqSelect.value;
+    modal.querySelector('#sch-freq-minutes').style.display = f === 'minutes' ? 'block' : 'none';
+    modal.querySelector('#sch-freq-hours').style.display = f === 'hours' ? 'block' : 'none';
+    modal.querySelector('#sch-freq-daily').style.display = f === 'daily' ? 'block' : 'none';
+    modal.querySelector('#sch-freq-weekly').style.display = f === 'weekly' ? 'block' : 'none';
+    modal.querySelector('#sch-freq-monthly').style.display = f === 'monthly' ? 'block' : 'none';
+    modal.querySelector('#sch-freq-once').style.display = f === 'once' ? 'block' : 'none';
+    modal.querySelector('#sch-freq-cron').style.display = f === 'cron' ? 'block' : 'none';
+  }
+  freqSelect.addEventListener('change', updateFreqFields);
+  updateFreqFields();
+
+  // Toggle target-specific fields
+  const targetTypeSelect = modal.querySelector('#sch-target-type');
+  function updateTargetFields() {
+    const tt = targetTypeSelect.value;
+    modal.querySelector('#sch-profile-group').style.display = tt === 'profile' ? 'block' : 'none';
+    modal.querySelector('#sch-agent-group').style.display = tt === 'agent' ? 'block' : 'none';
+    modal.querySelector('#sch-apm-group').style.display = tt === 'apm' ? 'block' : 'none';
+    modal.querySelector('#sch-workdir-group').style.display = (tt === 'agent' || tt === 'apm') ? 'block' : 'none';
+    modal.querySelector('#sch-mode-group').style.display = (tt === 'agent' || tt === 'apm') ? 'block' : 'none';
+  }
+  targetTypeSelect.addEventListener('change', updateTargetFields);
+  updateTargetFields();
+
+  // Load profiles
+  API.getProfiles().then(profiles => {
+    const sel = modal.querySelector('#sch-profile-id');
+    sel.innerHTML = '';
+    for (const p of profiles) {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name;
+      if (schedule?.targetType === 'profile' && schedule?.targetId === p.id) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    if (profiles.length === 0) sel.innerHTML = '<option value="">Nenhum perfil</option>';
+  }).catch(() => {});
+
+  // Load Claude agents
+  API.getClaudeAgents().then(data => {
+    const agents = data.agents || [];
+    const sel = modal.querySelector('#sch-agent-id');
+    sel.innerHTML = '';
+    for (const a of agents) {
+      const opt = document.createElement('option');
+      opt.value = a.name;
+      opt.textContent = a.name + (a.model ? ' (' + a.model + ')' : '');
+      if (schedule?.targetType === 'agent' && schedule?.targetId === a.name) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    if (agents.length === 0) sel.innerHTML = '<option value="">Nenhum agente</option>';
+  }).catch(() => {});
+
+  // Load APM agents
+  API.getApmAgents().then(data => {
+    const agents = data.agents || data || [];
+    const sel = modal.querySelector('#sch-apm-id');
+    sel.innerHTML = '';
+    for (const a of agents) {
+      const opt = document.createElement('option');
+      opt.value = a.id || a.name;
+      opt.textContent = a.name || a.id;
+      if (schedule?.targetType === 'apm' && schedule?.targetId === (a.id || a.name)) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    if (agents.length === 0) sel.innerHTML = '<option value="">Nenhum agente APM</option>';
+  }).catch(() => {});
+
+  // Save handler
+  overlay.querySelector('#sch-save').onclick = () => {
+    const name = modal.querySelector('#sch-name').value.trim();
+    if (!name) { showToast('Nome e obrigatorio', 'error'); return; }
+
+    const f = freqSelect.value;
+    const targetType = targetTypeSelect.value;
+
+    let targetId;
+    if (targetType === 'profile') targetId = modal.querySelector('#sch-profile-id').value;
+    else if (targetType === 'agent') targetId = modal.querySelector('#sch-agent-id').value;
+    else if (targetType === 'apm') targetId = modal.querySelector('#sch-apm-id').value;
+
+    if (!targetId) { showToast('Selecione um target', 'error'); return; }
+
+    const data = { name, targetType, targetId };
+
+    // Translate frequency selection to backend type/cron/interval
+    if (f === 'minutes') {
+      data.type = 'interval';
+      data.intervalMinutes = parseInt(modal.querySelector('#sch-val-minutes').value) || 30;
+    } else if (f === 'hours') {
+      const h = parseInt(modal.querySelector('#sch-val-hours').value) || 1;
+      data.type = 'cron';
+      data.cron = '0 */' + h + ' * * *';
+    } else if (f === 'daily') {
+      const tp = (modal.querySelector('#sch-val-daily-time').value || '09:00').split(':');
+      data.type = 'cron';
+      data.cron = (parseInt(tp[1]) || 0) + ' ' + (parseInt(tp[0]) || 9) + ' * * *';
+    } else if (f === 'weekly') {
+      const tp = (modal.querySelector('#sch-val-weekly-time').value || '09:00').split(':');
+      const wd = modal.querySelector('#sch-val-weekday').value || '1';
+      data.type = 'cron';
+      data.cron = (parseInt(tp[1]) || 0) + ' ' + (parseInt(tp[0]) || 9) + ' * * ' + wd;
+    } else if (f === 'monthly') {
+      const tp = (modal.querySelector('#sch-val-monthly-time').value || '09:00').split(':');
+      const md = modal.querySelector('#sch-val-monthday').value || '1';
+      data.type = 'cron';
+      data.cron = (parseInt(tp[1]) || 0) + ' ' + (parseInt(tp[0]) || 9) + ' ' + md + ' * *';
+    } else if (f === 'once') {
+      const dt = modal.querySelector('#sch-runat').value;
+      if (!dt) { showToast('Data/hora e obrigatoria', 'error'); return; }
+      data.type = 'once';
+      data.runAt = new Date(dt).toISOString();
+    } else if (f === 'cron') {
+      data.type = 'cron';
+      data.cron = modal.querySelector('#sch-cron').value.trim();
+      if (!data.cron) { showToast('Expressao cron e obrigatoria', 'error'); return; }
+    }
+
+    data.prompt = modal.querySelector('#sch-prompt').value.trim() || null;
+
+    data.targetConfig = {};
+    if (targetType === 'agent' || targetType === 'apm') {
+      data.targetConfig.workingDirectory = modal.querySelector('#sch-workdir').value.trim() || null;
+      data.targetConfig.mode = modal.querySelector('#sch-mode').value;
+    }
+
+    overlay.remove();
+    if (onSave) onSave(data);
+  };
+
+  // Focus name field
+  setTimeout(() => modal.querySelector('#sch-name').focus(), 100);
+}
+
 // ─── Helpers ───
 
 function formatDuration(seconds) {

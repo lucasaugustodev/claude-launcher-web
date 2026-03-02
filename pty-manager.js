@@ -249,7 +249,7 @@ function spawnSession(sessionId, shellAndArgs, cwd, env, sessionUpdater) {
 // Uses child_process.spawn (no PTY needed for JSON I/O).
 // Process stays alive for the entire session. Input via stdin JSON, output via stdout NDJSON.
 
-function spawnStreamJsonSession(sessionId, cwd, env, extraFlags) {
+function spawnStreamJsonSession(sessionId, cwd, env, extraFlags, initialPrompt) {
   if (!HAS_LOCAL_CLI) throw new Error('Local CLI not found for stream-json mode');
 
   const args = [LOCAL_CLI, '-p', '--output-format', 'stream-json', '--input-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'];
@@ -352,12 +352,18 @@ function spawnStreamJsonSession(sessionId, cwd, env, extraFlags) {
     console.log(`[STREAM-JSON] Session ${sessionId} exited (code=${code})`);
   });
 
+  // Send initial prompt if provided
+  if (initialPrompt) {
+    const promptJson = JSON.stringify({ type: 'user', message: { role: 'user', content: initialPrompt } }) + '\n';
+    child.stdin.write(promptJson);
+  }
+
   handles.set(sessionId, handle);
   startPolling();
   return handle;
 }
 
-async function launchSession(profileId, { streamJson } = {}) {
+async function launchSession(profileId, { streamJson, prompt } = {}) {
   const profile = storage.getProfile(profileId);
   if (!profile) throw new Error('Profile not found');
 
@@ -398,11 +404,13 @@ async function launchSession(profileId, { streamJson } = {}) {
   const flags = [];
   if (profile.mode === 'bypass') flags.push('--dangerously-skip-permissions');
 
+  const initialPrompt = prompt || profile.initialPrompt || null;
+
   let handle;
   if (streamJson) {
-    handle = spawnStreamJsonSession(sessionId, cwd, env, flags);
+    handle = spawnStreamJsonSession(sessionId, cwd, env, flags, initialPrompt);
   } else {
-    const shellAndArgs = buildClaudeCommand(flags, profile.initialPrompt || null);
+    const shellAndArgs = buildClaudeCommand(flags, initialPrompt);
     handle = spawnSession(sessionId, shellAndArgs, cwd, env);
   }
 
@@ -444,7 +452,7 @@ async function launchSession(profileId, { streamJson } = {}) {
   return session;
 }
 
-function launchAgent({ agentName, workingDirectory, mode, nodeMemory, streamJson }) {
+function launchAgent({ agentName, workingDirectory, mode, nodeMemory, streamJson, prompt }) {
   const sessionId = uuid();
   let cwd = workingDirectory || process.cwd();
   if (!fs.existsSync(cwd)) {
@@ -458,9 +466,9 @@ function launchAgent({ agentName, workingDirectory, mode, nodeMemory, streamJson
 
   let handle;
   if (streamJson) {
-    handle = spawnStreamJsonSession(sessionId, cwd, env, flags);
+    handle = spawnStreamJsonSession(sessionId, cwd, env, flags, prompt || null);
   } else {
-    const shellAndArgs = buildClaudeCommand(flags, null);
+    const shellAndArgs = buildClaudeCommand(flags, prompt || null);
     handle = spawnSession(sessionId, shellAndArgs, cwd, env);
   }
 
@@ -499,7 +507,7 @@ function launchDirect({ prompt, workingDirectory, mode, nodeMemory, name, stream
 
   let handle;
   if (streamJson) {
-    handle = spawnStreamJsonSession(sessionId, cwd, env, flags);
+    handle = spawnStreamJsonSession(sessionId, cwd, env, flags, prompt || null);
   } else {
     const shellAndArgs = buildClaudeCommand(flags, prompt || null);
     handle = spawnSession(sessionId, shellAndArgs, cwd, env);

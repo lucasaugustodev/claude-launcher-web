@@ -10,6 +10,7 @@
     "@anthropic-ai/claude-code": "^2.1.59",
     "express": "^4.21.0",
     "multer": "^2.0.2",
+    "node-cron": "^4.2.1",
     "node-pty": "^1.0.0",
     "uuid": "^9.0.0",
     "ws": "^8.18.0"
