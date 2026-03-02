@@ -750,6 +750,7 @@ function ContentRouter({ page }) {
     case 'files': return html`<${LegacyPage} renderFn=${renderFileManagerPage} />`;
     case 'github-cli': return html`<${LegacyPage} renderFn=${renderGitHubCLIPage} />`;
     case 'cline-cli': return html`<${LegacyPage} renderFn=${renderClineCliPage} />`;
+    case 'gemini-cli': return html`<${LegacyPage} renderFn=${renderGeminiCliPage} />`;
     case 'claude-agents': return html`<${LegacyPage} renderFn=${renderClaudeAgentsPage} />`;
     case 'agent-profiles': return html`<${LegacyPage} renderFn=${renderAgentProfilesPage} />`;
     default: return null;

@@ -128,6 +128,41 @@ function clearClineHistory() {
   saveClineSessions(sessions);
 }
 
+// ─── Gemini Sessions ───
+
+function getGeminiSessions() {
+  return readJSON('gemini-sessions.json', []);
+}
+
+function saveGeminiSessions(sessions) {
+  writeJSON('gemini-sessions.json', sessions);
+}
+
+function getGeminiSession(id) {
+  return getGeminiSessions().find(s => s.id === id) || null;
+}
+
+function addGeminiSession(session) {
+  const sessions = getGeminiSessions();
+  sessions.push(session);
+  saveGeminiSessions(sessions);
+  return session;
+}
+
+function updateGeminiSession(id, updates) {
+  const sessions = getGeminiSessions();
+  const idx = sessions.findIndex(s => s.id === id);
+  if (idx === -1) return null;
+  sessions[idx] = { ...sessions[idx], ...updates };
+  saveGeminiSessions(sessions);
+  return sessions[idx];
+}
+
+function clearGeminiHistory() {
+  const sessions = getGeminiSessions().filter(s => s.status === 'running');
+  saveGeminiSessions(sessions);
+}
+
 // ─── Users ───
 
 function getUsers() {
@@ -250,6 +285,7 @@ module.exports = {
   getProfiles, saveProfiles, getProfile, addProfile, updateProfile, deleteProfile,
   getSessions, saveSessions, getSession, addSession, updateSession, clearHistory,
   getClineSessions, saveClineSessions, getClineSession, addClineSession, updateClineSession, clearClineHistory,
+  getGeminiSessions, saveGeminiSessions, getGeminiSession, addGeminiSession, updateGeminiSession, clearGeminiHistory,
   getUsers, saveUsers, findUser, addUser, hasUsers,
   getGitHubConfig, saveGitHubConfig,
   getSchedules, getSchedule, addSchedule, updateSchedule, deleteSchedule, toggleSchedule,

@@ -1920,6 +1920,410 @@ async function renderClineSessionHistory(section) {
 }
 
 // ═══════════════════════════════════════════
+// Gemini CLI Page
+// ═══════════════════════════════════════════
+
+async function renderGeminiCliPage(container, guard) {
+  if (!guard) guard = () => true;
+  container.innerHTML = '';
+  container.appendChild(el('h2', { textContent: 'Gemini CLI' }));
+
+  const statusCard = el('div', {
+    className: 'card',
+    innerHTML: '<p style="color:var(--text-muted)">Verificando...</p>',
+  });
+  container.appendChild(statusCard);
+
+  try {
+    const status = await API.getGeminiCLIStatus();
+    if (!guard()) return;
+    renderGeminiCliStatus(container, statusCard, status);
+  } catch (err) {
+    if (!guard()) return;
+    statusCard.innerHTML = `<p style="color:var(--danger)">Erro ao verificar: ${err.message}</p>`;
+  }
+}
+
+function renderGeminiCliStatus(container, statusCard, status) {
+  statusCard.innerHTML = '';
+
+  if (!status.installed) {
+    // ─── State 1: Not installed ───
+    statusCard.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' } }, [
+      el('span', { className: 'status-tag status-crashed', textContent: 'Nao instalado' }),
+      el('span', { textContent: 'Gemini CLI nao encontrado neste servidor', style: { color: 'var(--text-muted)', fontSize: '14px' } }),
+    ]));
+
+    statusCard.appendChild(el('p', {
+      textContent: 'Gemini CLI e a ferramenta de linha de comando do Google para IA. Requer Node.js 18+. Instale via npm:',
+      style: { fontSize: '14px', marginBottom: '12px' },
+    }));
+
+    statusCard.appendChild(renderCopyBlock('npm install -g @google/gemini-cli'));
+
+    const installLog = el('pre', {
+      className: 'code-block',
+      style: { display: 'none', maxHeight: '300px', overflow: 'auto', marginTop: '12px' },
+    });
+
+    const installBtn = el('button', {
+      className: 'btn btn-primary',
+      textContent: 'Instalar Gemini CLI',
+      style: { marginTop: '12px' },
+      onClick: async () => {
+        installBtn.disabled = true;
+        installBtn.textContent = 'Instalando...';
+        installLog.style.display = 'block';
+        installLog.textContent = '';
+
+        try {
+          await API.installGeminiCLI((text) => {
+            installLog.textContent += text;
+            installLog.scrollTop = installLog.scrollHeight;
+          });
+          showToast('Gemini CLI instalado!');
+          const newStatus = await API.getGeminiCLIStatus();
+          renderGeminiCliStatus(container, statusCard, newStatus);
+        } catch (err) {
+          showToast('Falha na instalacao: ' + err.message, 'error');
+          installBtn.textContent = 'Tentar novamente';
+          installBtn.disabled = false;
+        }
+      },
+    });
+
+    statusCard.appendChild(installBtn);
+    statusCard.appendChild(installLog);
+
+  } else {
+    // ─── State 2: Installed (Ready) ───
+    statusCard.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' } }, [
+      el('span', { className: 'status-tag status-completed', textContent: 'Instalado' }),
+      el('span', {
+        textContent: `Gemini CLI v${status.version || '?'}`,
+        style: { color: 'var(--text-muted)', fontSize: '14px' },
+      }),
+    ]));
+
+    statusCard.appendChild(el('p', {
+      textContent: 'Na primeira sessao interativa, o Gemini pedira autenticacao via Google OAuth.',
+      style: { fontSize: '13px', color: 'var(--text-muted)', marginBottom: '12px' },
+    }));
+
+    // ─── New Session Button + Collapsible Form ───
+    const _env = API.serverEnv || {};
+    const _sep = _env.sep || '/';
+    const _home = _env.homeDir || '/root';
+    function _joinPath(base, name) { return base + _sep + name; }
+
+    const launchForm = el('div', { style: { display: 'none', marginTop: '12px' } });
+
+    const cwdInput = el('input', {
+      type: 'text',
+      placeholder: `Diretorio de trabalho (padrao: ${_home})`,
+      value: _home,
+    });
+
+    const cwdShortcuts = el('div', {
+      style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' },
+    });
+
+    const basePaths = _env.platform === 'win32' ? [
+      { label: 'Home', path: _home },
+      { label: 'Documents', path: _joinPath(_home, 'Documents') },
+      { label: 'Desktop', path: _joinPath(_home, 'Desktop') },
+    ] : [
+      { label: 'Home', path: _home },
+      { label: '/opt', path: '/opt' },
+      { label: '/srv', path: '/srv' },
+    ];
+
+    for (const bp of basePaths) {
+      cwdShortcuts.appendChild(el('button', {
+        className: 'btn btn-sm',
+        textContent: bp.label,
+        style: { fontSize: '11px', padding: '2px 8px', color: 'var(--text-muted)' },
+        onClick: () => { cwdInput.value = bp.path; },
+      }));
+    }
+
+    const promptInput = el('textarea', {
+      placeholder: 'Prompt inicial (opcional)',
+      style: { minHeight: '50px', resize: 'vertical' },
+    });
+
+    function launchGemini(withPrompt) {
+      return async () => {
+        const btn = withPrompt ? launchWithPromptBtn : launchInteractiveBtn;
+        const origText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Iniciando...';
+        try {
+          const p = withPrompt ? promptInput.value.trim() : null;
+          if (withPrompt && !p) { showToast('Digite um prompt', 'error'); btn.disabled = false; btn.textContent = origText; return; }
+          const session = await API.launchGeminiSession(p, cwdInput.value.trim() || undefined);
+          showToast('Sessao Gemini iniciada!');
+          launchForm.style.display = 'none';
+          newSessionBtn.style.display = '';
+          getViewManager().open(session.id);
+          document.getElementById('terminal-title').textContent = `Gemini — ${session.id.slice(0, 8)}`;
+          const onExit = (msg) => {
+            if (msg.sessionId === session.id) {
+              API.off('terminal:exit', onExit);
+              renderGeminiCliStatus(container, statusCard, status);
+            }
+          };
+          API.on('terminal:exit', onExit);
+        } catch (err) {
+          showToast('Erro: ' + err.message, 'error');
+        }
+        btn.textContent = origText;
+        btn.disabled = false;
+      };
+    }
+
+    const launchInteractiveBtn = el('button', {
+      className: 'btn btn-primary',
+      textContent: 'Iniciar Interativa',
+      onClick: launchGemini(false),
+    });
+
+    const launchWithPromptBtn = el('button', {
+      className: 'btn btn-primary',
+      textContent: 'Iniciar com Prompt',
+      onClick: launchGemini(true),
+    });
+
+    const cancelBtn = el('button', {
+      className: 'btn btn-sm',
+      textContent: 'Cancelar',
+      onClick: () => { launchForm.style.display = 'none'; newSessionBtn.style.display = ''; },
+    });
+
+    launchForm.appendChild(el('div', { className: 'form-group' }, [
+      el('label', { textContent: 'Diretorio de Trabalho' }),
+      cwdInput,
+      cwdShortcuts,
+    ]));
+
+    launchForm.appendChild(el('div', { className: 'form-group' }, [
+      el('label', { textContent: 'Prompt Inicial (opcional)' }),
+      promptInput,
+    ]));
+
+    launchForm.appendChild(el('div', {
+      style: { display: 'flex', gap: '8px', flexWrap: 'wrap' },
+    }, [launchInteractiveBtn, launchWithPromptBtn, cancelBtn]));
+
+    const newSessionBtn = el('button', {
+      className: 'btn btn-primary',
+      textContent: '+ Nova Sessao',
+      onClick: () => {
+        newSessionBtn.style.display = 'none';
+        launchForm.style.display = '';
+      },
+    });
+
+    statusCard.appendChild(newSessionBtn);
+    statusCard.appendChild(launchForm);
+
+    // ─── Active Gemini Sessions ───
+    const activeSection = el('div', { style: { marginTop: '24px' } });
+    statusCard.appendChild(activeSection);
+    renderGeminiActiveSessions(activeSection, container, statusCard, status);
+
+    // ─── Session History ───
+    const historySection = el('div', { style: { marginTop: '24px' } });
+    statusCard.appendChild(historySection);
+    renderGeminiSessionHistory(historySection);
+  }
+}
+
+async function renderGeminiActiveSessions(section, container, statusCard, status) {
+  section.innerHTML = '';
+  section.appendChild(el('div', {
+    style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' },
+  }, [
+    el('h3', { textContent: 'Sessoes Ativas', style: { fontSize: '16px', margin: '0' } }),
+    el('button', {
+      className: 'btn btn-sm',
+      textContent: 'Atualizar',
+      onClick: () => renderGeminiActiveSessions(section, container, statusCard, status),
+    }),
+  ]));
+
+  try {
+    const sessions = await API.getActiveGeminiSessions();
+    if (sessions.length === 0) {
+      section.appendChild(el('p', {
+        textContent: 'Nenhuma sessao ativa.',
+        style: { color: 'var(--text-muted)', fontSize: '13px' },
+      }));
+      return;
+    }
+
+    for (const s of sessions) {
+      const elapsed = formatDuration(s.elapsedSeconds);
+      const card = el('div', {
+        style: {
+          background: 'var(--surface1)', borderRadius: '8px', padding: '12px 16px', marginBottom: '8px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        },
+      }, [
+        el('div', {}, [
+          el('span', {
+            textContent: `Sessao ${s.id.slice(0, 8)}`,
+            style: { fontWeight: '600', fontSize: '14px' },
+          }),
+          el('span', {
+            textContent: ` — PID ${s.pid} — ${elapsed}`,
+            style: { color: 'var(--text-muted)', fontSize: '12px', marginLeft: '8px' },
+          }),
+          ...(s.prompt ? [el('div', {
+            textContent: s.prompt.length > 80 ? s.prompt.slice(0, 80) + '...' : s.prompt,
+            style: { fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', fontStyle: 'italic' },
+          })] : []),
+        ]),
+        el('div', { style: { display: 'flex', gap: '8px' } }, [
+          el('button', {
+            className: 'btn btn-primary btn-sm',
+            textContent: 'Abrir Terminal',
+            onClick: () => {
+              getViewManager().open(s.id);
+              document.getElementById('terminal-title').textContent = `Gemini — ${s.id.slice(0, 8)}`;
+            },
+          }),
+          el('button', {
+            className: 'btn btn-danger btn-sm',
+            textContent: 'Parar',
+            onClick: async () => {
+              try {
+                await API.stopGeminiSession(s.id);
+                showToast('Sessao parada');
+                renderGeminiActiveSessions(section, container, statusCard, status);
+              } catch (err) {
+                showToast(err.message, 'error');
+              }
+            },
+          }),
+        ]),
+      ]);
+      section.appendChild(card);
+    }
+  } catch (err) {
+    section.appendChild(el('p', {
+      textContent: 'Erro: ' + err.message,
+      style: { color: 'var(--danger)', fontSize: '13px' },
+    }));
+  }
+}
+
+async function renderGeminiSessionHistory(section) {
+  section.innerHTML = '';
+  section.appendChild(el('div', {
+    style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' },
+  }, [
+    el('h3', { textContent: 'Historico', style: { fontSize: '16px', margin: '0' } }),
+    el('div', { style: { display: 'flex', gap: '8px' } }, [
+      el('button', {
+        className: 'btn btn-sm',
+        textContent: 'Atualizar',
+        onClick: () => renderGeminiSessionHistory(section),
+      }),
+      el('button', {
+        className: 'btn btn-danger btn-sm',
+        textContent: 'Limpar',
+        onClick: async () => {
+          if (!confirm('Limpar historico de sessoes Gemini?')) return;
+          try {
+            await API.clearGeminiHistory();
+            showToast('Historico limpo');
+            renderGeminiSessionHistory(section);
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        },
+      }),
+    ]),
+  ]));
+
+  try {
+    const sessions = await API.getGeminiSessionHistory();
+    const history = sessions
+      .filter(s => s.status !== 'running')
+      .sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+
+    if (history.length === 0) {
+      section.appendChild(el('p', {
+        textContent: 'Nenhuma sessao no historico.',
+        style: { color: 'var(--text-muted)', fontSize: '13px' },
+      }));
+      return;
+    }
+
+    const tableContainer = el('div', { className: 'table-container' });
+    const table = el('table');
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th>Sessao</th>
+          <th>Prompt</th>
+          <th>Status</th>
+          <th>Inicio</th>
+          <th>Duracao</th>
+          <th>Acoes</th>
+        </tr>
+      </thead>
+    `;
+
+    const tbody = el('tbody');
+    for (const s of history) {
+      const tr = el('tr');
+      const statusClass = s.status || 'stopped';
+
+      tr.appendChild(el('td', { textContent: s.id.slice(0, 8) }));
+      tr.appendChild(el('td', {
+        textContent: s.prompt ? (s.prompt.length > 40 ? s.prompt.slice(0, 40) + '...' : s.prompt) : '(interativo)',
+        style: { color: s.prompt ? 'var(--text-primary)' : 'var(--text-muted)', fontStyle: s.prompt ? 'normal' : 'italic' },
+      }));
+      const tdStatus = el('td');
+      tdStatus.innerHTML = `<span class="status-tag ${statusClass}">${s.status || '-'}</span>`;
+      tr.appendChild(tdStatus);
+      tr.appendChild(el('td', { textContent: new Date(s.startedAt).toLocaleString() }));
+      tr.appendChild(el('td', { textContent: s.durationSeconds ? formatDuration(s.durationSeconds) : '-' }));
+
+      const tdActions = el('td', { className: 'history-actions' });
+      tdActions.appendChild(el('button', {
+        className: 'btn btn-sm',
+        textContent: 'Output',
+        onClick: async () => {
+          try {
+            const { output } = await API.getGeminiSessionOutput(s.id);
+            getViewManager().openReadOnly(
+              `Gemini — ${s.id.slice(0, 8)} (historico)`,
+              output,
+            );
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        },
+      }));
+      tr.appendChild(tdActions);
+      tbody.appendChild(tr);
+    }
+
+    table.appendChild(tbody);
+    tableContainer.appendChild(table);
+    section.appendChild(tableContainer);
+  } catch (err) {
+    section.appendChild(el('p', {
+      textContent: 'Erro: ' + err.message,
+      style: { color: 'var(--danger)', fontSize: '13px' },
+    }));
+  }
+}
+
+// ═══════════════════════════════════════════
 // APM Agent Profiles Page
 // ═══════════════════════════════════════════
 

@@ -9,6 +9,7 @@ const githubSync = require('./github-sync');
 const gitWatcher = require('./git-watcher');
 const githubCli = require('./github-cli');
 const clineCli = require('./cline-cli');
+const geminiCli = require('./gemini-cli');
 const scheduler = require('./scheduler');
 const multer = require('multer');
 const fs = require('fs');
@@ -1527,6 +1528,72 @@ app.delete('/api/cline-sessions/history', (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── Gemini CLI API ───
+
+app.get('/api/gemini-cli/status', checkToken, async (req, res) => {
+  try {
+    const status = await geminiCli.getStatus();
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/gemini-cli/install', checkToken, async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  try {
+    await geminiCli.install((text) => {
+      res.write(`data: ${JSON.stringify({ type: 'progress', text })}\n\n`);
+    });
+    const status = await geminiCli.getStatus();
+    res.write(`data: ${JSON.stringify({ type: 'done', ...status })}\n\n`);
+  } catch (err) {
+    res.write(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);
+  }
+  res.end();
+});
+
+// Gemini Sessions
+
+app.get('/api/gemini-sessions', checkToken, (req, res) => {
+  res.json(ptyManager.getActiveGeminiSessions());
+});
+
+app.get('/api/gemini-sessions/history', checkToken, (req, res) => {
+  res.json(storage.getGeminiSessions());
+});
+
+app.post('/api/gemini-sessions/launch', checkToken, (req, res) => {
+  const { prompt, workingDirectory } = req.body;
+
+  try {
+    const session = ptyManager.launchGeminiSession({ prompt, workingDirectory });
+    res.status(201).json(session);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/gemini-sessions/:id/stop', checkToken, (req, res) => {
+  const stopped = ptyManager.stopGeminiSession(req.params.id);
+  if (!stopped) return res.status(404).json({ error: 'Session not found or already stopped' });
+  res.json({ ok: true });
+});
+
+app.get('/api/gemini-sessions/:id/output', checkToken, (req, res) => {
+  const output = ptyManager.getSessionOutput(req.params.id);
+  res.json({ output });
+});
+
+app.delete('/api/gemini-sessions/history', checkToken, (req, res) => {
+  storage.clearGeminiHistory();
+  res.json({ ok: true });
+});
+
 // ─── Schedules API (authenticated) ───
 
 app.get('/api/schedules', checkToken, (req, res) => {
@@ -1762,9 +1829,18 @@ if (cleanedCline > 0) {
 // Initialize scheduler
 scheduler.init(storage, ptyManager, broadcastToAll);
 
-// Pre-warm Cline CLI status cache so first tab visit is instant
+// Pre-warm CLI status caches so first tab visit is instant
 clineCli.getStatus().then(s => {
   console.log(`[CLINE] Status cached: installed=${s.installed}, v=${s.version}, configured=${s.configured}`);
+}).catch(() => {});
+
+const cleanedGemini = ptyManager.cleanupOrphanedGemini();
+if (cleanedGemini > 0) {
+  console.log(`Cleaned ${cleanedGemini} orphaned Gemini sessions`);
+}
+
+geminiCli.getStatus().then(s => {
+  console.log(`[GEMINI] Status cached: installed=${s.installed}, v=${s.version}`);
 }).catch(() => {});
 
 server.listen(PORT, '0.0.0.0', () => {

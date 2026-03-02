@@ -283,6 +283,69 @@ const API = {
     return this.fetch('api/cline-sessions/history', { method: 'DELETE' });
   },
 
+  // ─── Gemini CLI ───
+
+  getGeminiCLIStatus() {
+    return this.fetch('api/gemini-cli/status');
+  },
+
+  async installGeminiCLI(onProgress) {
+    const headers = {};
+    if (this._token) headers['Authorization'] = 'Bearer ' + this._token;
+
+    const res = await fetch(_url('api/gemini-cli/install'), { method: 'POST', headers });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let result = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value);
+      const lines = text.split('\n').filter(l => l.startsWith('data: '));
+      for (const line of lines) {
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.type === 'progress' && onProgress) onProgress(data.text);
+          if (data.type === 'done') result = data;
+          if (data.type === 'error') throw new Error(data.message);
+        } catch (e) {
+          if (e.message && !e.message.includes('JSON')) throw e;
+        }
+      }
+    }
+    return result;
+  },
+
+  // ─── Gemini Sessions ───
+
+  getActiveGeminiSessions() {
+    return this.fetch('api/gemini-sessions');
+  },
+
+  getGeminiSessionHistory() {
+    return this.fetch('api/gemini-sessions/history');
+  },
+
+  launchGeminiSession(prompt, workingDirectory) {
+    return this.fetch('api/gemini-sessions/launch', {
+      method: 'POST',
+      body: JSON.stringify({ prompt: prompt || undefined, workingDirectory: workingDirectory || undefined }),
+    });
+  },
+
+  stopGeminiSession(id) {
+    return this.fetch(`api/gemini-sessions/${id}/stop`, { method: 'POST' });
+  },
+
+  getGeminiSessionOutput(id) {
+    return this.fetch(`api/gemini-sessions/${id}/output`);
+  },
+
+  clearGeminiHistory() {
+    return this.fetch('api/gemini-sessions/history', { method: 'DELETE' });
+  },
+
   // ─── File Manager ───
 
   listFiles(dirPath) {
