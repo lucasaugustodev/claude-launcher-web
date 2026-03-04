@@ -10,13 +10,14 @@ const gitWatcher = require('./git-watcher');
 const githubCli = require('./github-cli');
 const clineCli = require('./cline-cli');
 const geminiCli = require('./gemini-cli');
+const claudeCli = require('./claude-cli');
 const scheduler = require('./scheduler');
 const multer = require('multer');
 const fs = require('fs');
 const { execFile } = require('child_process');
 const os = require('os');
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3002;
 
 const app = express();
 const server = http.createServer(app);
@@ -47,6 +48,14 @@ function checkToken(req, res, next) {
   if (req.path === '/api/auth/status') return next();
   if (req.path === '/api/auth/setup') return next();
   if (req.path === '/api/auth/login') return next();
+
+  // Allow all localhost requests without auth
+  const ip = req.ip || req.connection.remoteAddress || '';
+  const isLocalhost = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip === 'localhost';
+  if (isLocalhost) {
+    req.user = 'localhost';
+    return next();
+  }
 
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -1557,6 +1566,16 @@ app.post('/api/gemini-cli/install', checkToken, async (req, res) => {
   res.end();
 });
 
+app.post('/api/gemini-cli/auth', checkToken, (req, res) => {
+  try {
+    geminiCli.invalidateCache();
+    const session = ptyManager.spawnInteractive('gemini', [], process.cwd());
+    res.json({ sessionId: session.id, pid: session.pid });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Gemini Sessions
 
 app.get('/api/gemini-sessions', checkToken, (req, res) => {
@@ -1592,6 +1611,45 @@ app.get('/api/gemini-sessions/:id/output', checkToken, (req, res) => {
 app.delete('/api/gemini-sessions/history', checkToken, (req, res) => {
   storage.clearGeminiHistory();
   res.json({ ok: true });
+});
+
+// ─── Claude Code CLI API ───
+
+app.get('/api/claude-cli/status', checkToken, async (req, res) => {
+  try {
+    const status = await claudeCli.getStatus();
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/claude-cli/install', checkToken, async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  try {
+    await claudeCli.install((text) => {
+      res.write(`data: ${JSON.stringify({ type: 'progress', text })}\n\n`);
+    });
+    const status = await claudeCli.getStatus();
+    res.write(`data: ${JSON.stringify({ type: 'done', ...status })}\n\n`);
+  } catch (err) {
+    res.write(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);
+  }
+  res.end();
+});
+
+app.post('/api/claude-cli/auth', checkToken, (req, res) => {
+  try {
+    claudeCli.invalidateCache();
+    const session = ptyManager.spawnInteractive('claude', [], process.cwd());
+    res.json({ sessionId: session.id, pid: session.pid });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── Schedules API (authenticated) ───
@@ -1749,7 +1807,21 @@ wss.on('connection', (ws, req) => {
 
         const output = ptyManager.getSessionOutput(sessionId);
         if (output) {
+          // Always send raw output (for terminal fallback)
           ws.send(JSON.stringify({ type: 'output', sessionId, data: output }));
+
+          // For stream-json sessions, re-emit buffer as parsed events for chat replay
+          if (ptyManager.isStreamJson(sessionId)) {
+            const lines = output.split('\n');
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed) continue;
+              try {
+                const event = JSON.parse(trimmed);
+                ws.send(JSON.stringify({ type: 'stream-json', sessionId, event }));
+              } catch {}
+            }
+          }
         }
 
         ptyManager.addListener(sessionId, sendFn);
@@ -1827,6 +1899,552 @@ if (cleanedCline > 0) {
 }
 
 // Initialize scheduler
+
+// ─── Workflows API (BMAD Method) ───
+
+const BMAD_PHASES = ['analysis', 'planning', 'solutioning', 'implementation', 'completed'];
+
+const BMAD_AGENTS = [
+  { name: 'bmad-analyst', persona: 'Mary', title: 'Analyst', phase: 'analysis', icon: '\u{1F4CA}', color: '#89b4fa' },
+  { name: 'bmad-pm', persona: 'John', title: 'Product Manager', phase: 'planning', icon: '\u{1F4CB}', color: '#f9e2af' },
+  { name: 'bmad-ux-designer', persona: 'Sally', title: 'UX Designer', phase: 'planning', icon: '\u{1F3A8}', color: '#f9e2af' },
+  { name: 'bmad-architect', persona: 'Winston', title: 'Architect', phase: 'solutioning', icon: '\u{1F3D7}', color: '#cba6f7' },
+  { name: 'bmad-scrum-master', persona: 'Bob', title: 'Scrum Master', phase: 'implementation', icon: '\u{1F3C3}', color: '#a6e3a1' },
+  { name: 'bmad-dev', persona: 'Amelia', title: 'Developer', phase: 'implementation', icon: '\u{1F4BB}', color: '#a6e3a1' },
+  { name: 'bmad-qa', persona: 'Quinn', title: 'QA Engineer', phase: 'implementation', icon: '\u{1F9EA}', color: '#a6e3a1' },
+];
+
+const PHASE_DEFAULT_AGENT = {
+  analysis: 'bmad-analyst',
+  planning: 'bmad-pm',
+  solutioning: 'bmad-architect',
+  implementation: 'bmad-scrum-master',
+};
+
+app.get('/api/workflows/agents', checkToken, (req, res) => {
+  res.json(BMAD_AGENTS);
+});
+
+app.get('/api/workflows', checkToken, (req, res) => {
+  res.json(storage.getWorkflows());
+});
+
+app.post('/api/workflows', checkToken, (req, res) => {
+  const { name, description, workingDirectory, phase } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name is required' });
+  if (!workingDirectory) return res.status(400).json({ error: 'Working directory is required' });
+  const { v4: uuid } = require('uuid');
+  const now = new Date().toISOString();
+  const startPhase = BMAD_PHASES.includes(phase) ? phase : 'analysis';
+  const workflow = {
+    id: uuid(),
+    name,
+    description: description || '',
+    workingDirectory,
+    phase: startPhase,
+    status: 'active',
+    artifacts: [],
+    history: [{ action: 'created', at: now }],
+    createdAt: now,
+    updatedAt: now,
+  };
+  storage.addWorkflow(workflow);
+  console.log(`[WORKFLOW] Created: ${name} (phase: ${startPhase})`);
+  res.status(201).json(workflow);
+});
+
+app.get('/api/workflows/:id', checkToken, (req, res) => {
+  const workflow = storage.getWorkflow(req.params.id);
+  if (!workflow) return res.status(404).json({ error: 'Workflow not found' });
+  res.json(workflow);
+});
+
+app.put('/api/workflows/:id', checkToken, (req, res) => {
+  const { name, description, workingDirectory } = req.body;
+  const updates = {};
+  if (name !== undefined) updates.name = name;
+  if (description !== undefined) updates.description = description;
+  if (workingDirectory !== undefined) updates.workingDirectory = workingDirectory;
+  updates.updatedAt = new Date().toISOString();
+  const updated = storage.updateWorkflow(req.params.id, updates);
+  if (!updated) return res.status(404).json({ error: 'Workflow not found' });
+  res.json(updated);
+});
+
+app.delete('/api/workflows/:id', checkToken, (req, res) => {
+  storage.deleteWorkflow(req.params.id);
+  res.json({ ok: true });
+});
+
+app.post('/api/workflows/:id/advance', checkToken, (req, res) => {
+  const workflow = storage.getWorkflow(req.params.id);
+  if (!workflow) return res.status(404).json({ error: 'Workflow not found' });
+  const currentIdx = BMAD_PHASES.indexOf(workflow.phase);
+  if (currentIdx === -1 || currentIdx >= BMAD_PHASES.length - 1) {
+    return res.status(400).json({ error: 'Cannot advance from current phase' });
+  }
+  const nextPhase = BMAD_PHASES[currentIdx + 1];
+  const now = new Date().toISOString();
+  const history = [...(workflow.history || []), {
+    action: 'phase-advanced',
+    from: workflow.phase,
+    to: nextPhase,
+    note: req.body.note || '',
+    at: now,
+  }];
+  const updated = storage.updateWorkflow(req.params.id, { phase: nextPhase, history, updatedAt: now });
+  console.log(`[WORKFLOW] ${workflow.name}: ${workflow.phase} -> ${nextPhase}`);
+  res.json(updated);
+});
+
+app.post('/api/workflows/:id/artifacts', checkToken, (req, res) => {
+  const workflow = storage.getWorkflow(req.params.id);
+  if (!workflow) return res.status(404).json({ error: 'Workflow not found' });
+  const { type, name } = req.body;
+  if (!type || !name) return res.status(400).json({ error: 'type and name are required' });
+  const now = new Date().toISOString();
+  const artifacts = [...(workflow.artifacts || []), {
+    type, name, createdAt: now, createdBy: req.body.createdBy || '',
+  }];
+  const updated = storage.updateWorkflow(req.params.id, { artifacts, updatedAt: now });
+  res.json(updated);
+});
+
+app.post('/api/workflows/:id/launch', checkToken, (req, res) => {
+  const workflow = storage.getWorkflow(req.params.id);
+  if (!workflow) return res.status(404).json({ error: 'Workflow not found' });
+
+  // Default: launch orchestrator with full workflow context
+  const agentName = req.body.agentOverride || 'bmad-orchestrator';
+
+  const cwd = workflow.workingDirectory || process.cwd();
+  if (!fs.existsSync(cwd)) {
+    return res.status(400).json({ error: 'Working directory does not exist: ' + cwd });
+  }
+
+  // Build context prompt for orchestrator
+  let contextPrompt = req.body.prompt || '';
+  if (agentName === 'bmad-orchestrator') {
+    const phaseLabel = { analysis: 'Analysis', planning: 'Planning', solutioning: 'Solutioning', implementation: 'Implementation', completed: 'Completed' };
+    const artifactList = workflow.artifacts.length > 0
+      ? workflow.artifacts.map(a => `  - ${a.type}: ${a.name} (by ${a.createdBy || 'unknown'}, ${a.createdAt})`).join('\n')
+      : '  (none)';
+    contextPrompt = `## Workflow Context
+
+**Workflow ID:** ${workflow.id}
+**Project:** ${workflow.name}
+**Description:** ${workflow.description || 'N/A'}
+**Working Directory:** ${cwd}
+**Current Phase:** ${phaseLabel[workflow.phase] || workflow.phase}
+**Status:** ${workflow.status}
+
+### Existing Artifacts
+${artifactList}
+
+### History
+${(workflow.history || []).slice(-10).map(h => `  - [${h.at}] ${h.action}${h.agent ? ': ' + h.agent : ''}${h.from ? ': ' + h.from + ' → ' + h.to : ''}`).join('\n')}
+
+---
+
+Use this context to guide the user. Check the _bmad-output/ directory for produced artifacts. Use the localhost API at http://localhost:3002 with the workflow ID above to advance phases and register artifacts.${contextPrompt ? '\n\nUser message: ' + contextPrompt : ''}`;
+  }
+
+  try {
+    const session = ptyManager.launchAgent({
+      agentName,
+      workingDirectory: cwd,
+      mode: 'bypass',
+      prompt: contextPrompt || null,
+      streamJson: true,
+    });
+    const now = new Date().toISOString();
+    const history = [...(workflow.history || []), {
+      action: 'agent-launched',
+      agent: agentName,
+      sessionId: session.id,
+      at: now,
+    }];
+    storage.updateWorkflow(req.params.id, { history, updatedAt: now });
+    console.log(`[WORKFLOW] Launched ${agentName} for "${workflow.name}", session ${session.id}`);
+    res.status(201).json(session);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ─── Workflows Local API (no auth, localhost only — for orchestrator agent) ───
+
+function checkLocalhost(req, res, next) {
+  const ip = req.ip || req.connection.remoteAddress;
+  const allowed = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
+  if (!allowed.includes(ip)) return res.status(403).json({ error: 'Only available from localhost' });
+  next();
+}
+
+app.get('/api/workflows/local/:id', checkLocalhost, (req, res) => {
+  const workflow = storage.getWorkflow(req.params.id);
+  if (!workflow) return res.status(404).json({ error: 'Workflow not found' });
+  res.json(workflow);
+});
+
+app.post('/api/workflows/local/:id/advance', checkLocalhost, (req, res) => {
+  const workflow = storage.getWorkflow(req.params.id);
+  if (!workflow) return res.status(404).json({ error: 'Workflow not found' });
+  const currentIdx = BMAD_PHASES.indexOf(workflow.phase);
+  if (currentIdx === -1 || currentIdx >= BMAD_PHASES.length - 1) {
+    return res.status(400).json({ error: 'Cannot advance from current phase' });
+  }
+  const nextPhase = BMAD_PHASES[currentIdx + 1];
+  const now = new Date().toISOString();
+  const history = [...(workflow.history || []), {
+    action: 'phase-advanced', from: workflow.phase, to: nextPhase, note: req.body.note || '', at: now,
+  }];
+  const updated = storage.updateWorkflow(req.params.id, { phase: nextPhase, history, updatedAt: now });
+  console.log(`[WORKFLOW] ${workflow.name}: ${workflow.phase} -> ${nextPhase} (via orchestrator)`);
+  res.json(updated);
+});
+
+app.post('/api/workflows/local/:id/artifacts', checkLocalhost, (req, res) => {
+  const workflow = storage.getWorkflow(req.params.id);
+  if (!workflow) return res.status(404).json({ error: 'Workflow not found' });
+  const { type, name } = req.body;
+  if (!type || !name) return res.status(400).json({ error: 'type and name are required' });
+  const now = new Date().toISOString();
+  const artifacts = [...(workflow.artifacts || []), { type, name, createdAt: now, createdBy: req.body.createdBy || '' }];
+  const updated = storage.updateWorkflow(req.params.id, { artifacts, updatedAt: now });
+  res.json(updated);
+});
+
+// ─── Skills API (authenticated) ───
+
+const SKILLS_DIRS = {
+  personal: path.join(os.homedir(), '.claude', 'skills'),
+};
+
+const GEMINI_DIRS = {
+  commands: path.join(os.homedir(), '.gemini', 'commands'),
+  extensions: path.join(os.homedir(), '.gemini', 'extensions'),
+  settings: path.join(os.homedir(), '.gemini'),
+};
+
+function parseSkillFrontmatter(content) {
+  const fm = {};
+  const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+  if (!match) return { frontmatter: fm, body: content };
+  const lines = match[1].split('\n');
+  for (const line of lines) {
+    const idx = line.indexOf(':');
+    if (idx === -1) continue;
+    const key = line.slice(0, idx).trim();
+    let val = line.slice(idx + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'")))
+      val = val.slice(1, -1);
+    if (val === 'true') val = true;
+    else if (val === 'false') val = false;
+    fm[key] = val;
+  }
+  return { frontmatter: fm, body: content.slice(match[0].length) };
+}
+
+function scanSkillsDir(dirPath, scope) {
+  const skills = [];
+  if (!fs.existsSync(dirPath)) return skills;
+  try {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const skillMd = path.join(dirPath, entry.name, 'SKILL.md');
+      if (!fs.existsSync(skillMd)) continue;
+      try {
+        const raw = fs.readFileSync(skillMd, 'utf8');
+        const stat = fs.statSync(skillMd);
+        const { frontmatter, body } = parseSkillFrontmatter(raw);
+        const supportFiles = [];
+        const skillDir = path.join(dirPath, entry.name);
+        const allFiles = fs.readdirSync(skillDir, { recursive: true });
+        for (const f of allFiles) {
+          const fStr = typeof f === 'string' ? f : f.toString();
+          if (fStr !== 'SKILL.md') supportFiles.push(fStr);
+        }
+        skills.push({
+          id: scope + ':' + entry.name,
+          dirName: entry.name,
+          scope,
+          path: skillDir,
+          name: frontmatter.name || entry.name,
+          description: frontmatter.description || '',
+          model: frontmatter.model || null,
+          context: frontmatter.context || 'inline',
+          userInvocable: frontmatter['user-invocable'] !== false,
+          disableModelInvocation: frontmatter['disable-model-invocation'] === true,
+          argumentHint: frontmatter['argument-hint'] || '',
+          allowedTools: frontmatter['allowed-tools'] || '',
+          body: body.trim().substring(0, 500) + (body.trim().length > 500 ? '...' : ''),
+          supportFiles,
+          fileSize: stat.size,
+          modifiedAt: stat.mtime.toISOString(),
+        });
+      } catch {}
+    }
+  } catch {}
+  return skills;
+}
+
+// ─── Gemini Skills/Commands Scanner ───
+
+function parseToml(content) {
+  const result = {};
+  const lines = content.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('[')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    let val = trimmed.slice(eqIdx + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'")))
+      val = val.slice(1, -1);
+    if (val === 'true') val = true;
+    else if (val === 'false') val = false;
+    result[key] = val;
+  }
+  return result;
+}
+
+function scanGeminiCommands() {
+  const commands = [];
+  const cmdDir = GEMINI_DIRS.commands;
+  if (!fs.existsSync(cmdDir)) return commands;
+  try {
+    const files = fs.readdirSync(cmdDir).filter(f => f.endsWith('.toml'));
+    for (const file of files) {
+      try {
+        const raw = fs.readFileSync(path.join(cmdDir, file), 'utf8');
+        const stat = fs.statSync(path.join(cmdDir, file));
+        const parsed = parseToml(raw);
+        commands.push({
+          id: 'gemini-cmd:' + file.replace('.toml', ''),
+          filename: file,
+          name: parsed.name || file.replace('.toml', ''),
+          description: parsed.description || '',
+          command: parsed.command || '',
+          args: parsed.args || '',
+          type: 'command',
+          raw,
+          fileSize: stat.size,
+          modifiedAt: stat.mtime.toISOString(),
+          path: path.join(cmdDir, file),
+        });
+      } catch {}
+    }
+  } catch {}
+  return commands;
+}
+
+function scanGeminiExtensions() {
+  const extensions = [];
+  const extDir = GEMINI_DIRS.extensions;
+  if (!fs.existsSync(extDir)) return extensions;
+  try {
+    const entries = fs.readdirSync(extDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const extPath = path.join(extDir, entry.name);
+      // Check for extension manifest
+      const manifestFiles = ['extension.json', 'package.json', 'manifest.json'];
+      let manifest = null;
+      let manifestFile = null;
+      for (const mf of manifestFiles) {
+        const fp = path.join(extPath, mf);
+        if (fs.existsSync(fp)) {
+          try { manifest = JSON.parse(fs.readFileSync(fp, 'utf8')); manifestFile = mf; } catch {}
+          break;
+        }
+      }
+      // Also check for SKILL.md inside extension
+      const skillFiles = [];
+      try {
+        const walk = (dir) => {
+          const items = fs.readdirSync(dir, { withFileTypes: true });
+          for (const item of items) {
+            if (item.isFile() && item.name === 'SKILL.md') skillFiles.push(path.join(dir, item.name));
+            if (item.isDirectory() && item.name !== 'node_modules') walk(path.join(dir, item.name));
+          }
+        };
+        walk(extPath);
+      } catch {}
+
+      extensions.push({
+        id: 'gemini-ext:' + entry.name,
+        dirName: entry.name,
+        name: (manifest && manifest.name) || entry.name,
+        description: (manifest && manifest.description) || '',
+        version: (manifest && manifest.version) || '',
+        type: 'extension',
+        manifestFile,
+        skillCount: skillFiles.length,
+        path: extPath,
+      });
+    }
+  } catch {}
+  return extensions;
+}
+
+// Also scan GEMINI.md project files
+function scanGeminiProjectFile() {
+  const geminiMd = path.join(os.homedir(), '.gemini', 'GEMINI.md');
+  if (!fs.existsSync(geminiMd)) return null;
+  try {
+    const raw = fs.readFileSync(geminiMd, 'utf8');
+    const stat = fs.statSync(geminiMd);
+    return { raw, fileSize: stat.size, modifiedAt: stat.mtime.toISOString(), path: geminiMd };
+  } catch { return null; }
+}
+
+// GET /api/gemini-skills - List Gemini commands, extensions, and GEMINI.md
+app.get('/api/gemini-skills', checkToken, (req, res) => {
+  const commands = scanGeminiCommands();
+  const extensions = scanGeminiExtensions();
+  const geminiMd = scanGeminiProjectFile();
+  res.json({
+    commands,
+    extensions,
+    geminiMd,
+    commandsDir: GEMINI_DIRS.commands,
+    extensionsDir: GEMINI_DIRS.extensions,
+  });
+});
+
+// GET /api/gemini-skills/command/:name - Full command content
+app.get('/api/gemini-skills/command/:name', checkToken, (req, res) => {
+  const file = req.params.name.endsWith('.toml') ? req.params.name : req.params.name + '.toml';
+  const fp = path.join(GEMINI_DIRS.commands, file);
+  if (!fs.existsSync(fp)) return res.status(404).json({ error: 'Comando nao encontrado' });
+  res.json({ raw: fs.readFileSync(fp, 'utf8'), path: fp });
+});
+
+// POST /api/gemini-skills/command - Create Gemini command
+app.post('/api/gemini-skills/command', checkToken, (req, res) => {
+  const { name, description, command, args } = req.body;
+  if (!name) return res.status(400).json({ error: 'Nome e obrigatorio' });
+  const filename = name.replace(/[^a-z0-9-]/gi, '-').toLowerCase() + '.toml';
+  const fp = path.join(GEMINI_DIRS.commands, filename);
+  if (fs.existsSync(fp)) return res.status(409).json({ error: 'Comando ja existe' });
+  fs.mkdirSync(GEMINI_DIRS.commands, { recursive: true });
+  let content = `name = "${name}"\n`;
+  if (description) content += `description = "${description}"\n`;
+  if (command) content += `command = "${command}"\n`;
+  if (args) content += `args = "${args}"\n`;
+  fs.writeFileSync(fp, content, 'utf8');
+  res.json({ ok: true, path: fp });
+});
+
+// PUT /api/gemini-skills/command/:name - Update Gemini command
+app.put('/api/gemini-skills/command/:name', checkToken, (req, res) => {
+  const file = req.params.name.endsWith('.toml') ? req.params.name : req.params.name + '.toml';
+  const fp = path.join(GEMINI_DIRS.commands, file);
+  if (!fs.existsSync(fp)) return res.status(404).json({ error: 'Comando nao encontrado' });
+  const { raw } = req.body;
+  if (!raw) return res.status(400).json({ error: 'Conteudo e obrigatorio' });
+  fs.writeFileSync(fp, raw, 'utf8');
+  res.json({ ok: true });
+});
+
+// DELETE /api/gemini-skills/command/:name
+app.delete('/api/gemini-skills/command/:name', checkToken, (req, res) => {
+  const file = req.params.name.endsWith('.toml') ? req.params.name : req.params.name + '.toml';
+  const fp = path.join(GEMINI_DIRS.commands, file);
+  if (!fs.existsSync(fp)) return res.status(404).json({ error: 'Comando nao encontrado' });
+  fs.unlinkSync(fp);
+  res.json({ ok: true });
+});
+
+// GET /api/skills - List all skills from all scopes
+app.get('/api/skills', checkToken, (req, res) => {
+  const personal = scanSkillsDir(SKILLS_DIRS.personal, 'personal');
+  // Scan project-level skills for all known profile working directories
+  const projectSkills = [];
+  const profiles = storage.getProfiles();
+  const scannedDirs = new Set();
+  for (const p of profiles) {
+    if (p.workingDirectory) {
+      const projSkillsDir = path.join(p.workingDirectory, '.claude', 'skills');
+      if (!scannedDirs.has(projSkillsDir)) {
+        scannedDirs.add(projSkillsDir);
+        projectSkills.push(...scanSkillsDir(projSkillsDir, 'project:' + p.name));
+      }
+    }
+  }
+  res.json({
+    skills: [...personal, ...projectSkills],
+    personalDir: SKILLS_DIRS.personal,
+  });
+});
+
+// GET /api/skills/:scope/:name - Get full skill content
+app.get('/api/skills/:scope/:name', checkToken, (req, res) => {
+  const { scope, name } = req.params;
+  let dirPath;
+  if (scope === 'personal') {
+    dirPath = path.join(SKILLS_DIRS.personal, name);
+  } else {
+    return res.status(400).json({ error: 'Scope invalido' });
+  }
+  const skillMd = path.join(dirPath, 'SKILL.md');
+  if (!fs.existsSync(skillMd)) return res.status(404).json({ error: 'Skill nao encontrada' });
+  const raw = fs.readFileSync(skillMd, 'utf8');
+  const { frontmatter, body } = parseSkillFrontmatter(raw);
+  res.json({ name: frontmatter.name || name, frontmatter, body, raw, path: dirPath });
+});
+
+// POST /api/skills - Create a new skill
+app.post('/api/skills', checkToken, (req, res) => {
+  const { name, description, content, model, context, argumentHint, disableModelInvocation, userInvocable } = req.body;
+  if (!name) return res.status(400).json({ error: 'Nome e obrigatorio' });
+  if (!/^[a-z0-9-]+$/.test(name)) return res.status(400).json({ error: 'Nome deve conter apenas letras minusculas, numeros e hifens' });
+
+  const skillDir = path.join(SKILLS_DIRS.personal, name);
+  if (fs.existsSync(skillDir)) return res.status(409).json({ error: 'Skill ja existe' });
+
+  fs.mkdirSync(skillDir, { recursive: true });
+
+  let fm = `---\nname: ${name}\n`;
+  if (description) fm += `description: "${description}"\n`;
+  if (model) fm += `model: ${model}\n`;
+  if (context && context !== 'inline') fm += `context: ${context}\n`;
+  if (argumentHint) fm += `argument-hint: "${argumentHint}"\n`;
+  if (disableModelInvocation) fm += `disable-model-invocation: true\n`;
+  if (userInvocable === false) fm += `user-invocable: false\n`;
+  fm += `---\n\n`;
+
+  const body = content || `# ${name}\n\nDescreva as instrucoes da skill aqui.\n`;
+  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), fm + body, 'utf8');
+
+  res.json({ ok: true, path: skillDir });
+});
+
+// PUT /api/skills/:name - Update skill content
+app.put('/api/skills/:name', checkToken, (req, res) => {
+  const { name } = req.params;
+  const skillDir = path.join(SKILLS_DIRS.personal, name);
+  const skillMd = path.join(skillDir, 'SKILL.md');
+  if (!fs.existsSync(skillMd)) return res.status(404).json({ error: 'Skill nao encontrada' });
+
+  const { raw } = req.body;
+  if (!raw) return res.status(400).json({ error: 'Conteudo e obrigatorio' });
+  fs.writeFileSync(skillMd, raw, 'utf8');
+  res.json({ ok: true });
+});
+
+// DELETE /api/skills/:name - Delete a personal skill
+app.delete('/api/skills/:name', checkToken, (req, res) => {
+  const { name } = req.params;
+  const skillDir = path.join(SKILLS_DIRS.personal, name);
+  if (!fs.existsSync(skillDir)) return res.status(404).json({ error: 'Skill nao encontrada' });
+  fs.rmSync(skillDir, { recursive: true, force: true });
+  res.json({ ok: true });
+});
+
 scheduler.init(storage, ptyManager, broadcastToAll);
 
 // Pre-warm CLI status caches so first tab visit is instant

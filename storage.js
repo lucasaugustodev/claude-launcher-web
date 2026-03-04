@@ -281,6 +281,76 @@ function getScheduleLogBySchedule(scheduleId) {
     .sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
 }
 
+// ─── Skills ───
+
+function getSkills() {
+  return readJSON('skills.json', []);
+}
+
+function saveSkills(skills) {
+  writeJSON('skills.json', skills);
+}
+
+function getSkill(id) {
+  return getSkills().find(s => s.id === id) || null;
+}
+
+function addSkill(skill) {
+  const skills = getSkills();
+  skills.push(skill);
+  saveSkills(skills);
+  return skill;
+}
+
+function updateSkill(id, updates) {
+  const skills = getSkills();
+  const idx = skills.findIndex(s => s.id === id);
+  if (idx === -1) return null;
+  skills[idx] = { ...skills[idx], ...updates, id };
+  saveSkills(skills);
+  return skills[idx];
+}
+
+function deleteSkill(id) {
+  const skills = getSkills().filter(s => s.id !== id);
+  saveSkills(skills);
+}
+
+// ─── Workflows ───
+
+function getWorkflows() {
+  return readJSON('workflows.json', []);
+}
+
+function saveWorkflows(workflows) {
+  writeJSON('workflows.json', workflows);
+}
+
+function getWorkflow(id) {
+  return getWorkflows().find(w => w.id === id) || null;
+}
+
+function addWorkflow(workflow) {
+  const workflows = getWorkflows();
+  workflows.push(workflow);
+  saveWorkflows(workflows);
+  return workflow;
+}
+
+function updateWorkflow(id, updates) {
+  const workflows = getWorkflows();
+  const idx = workflows.findIndex(w => w.id === id);
+  if (idx === -1) return null;
+  workflows[idx] = { ...workflows[idx], ...updates, id };
+  saveWorkflows(workflows);
+  return workflows[idx];
+}
+
+function deleteWorkflow(id) {
+  const workflows = getWorkflows().filter(w => w.id !== id);
+  saveWorkflows(workflows);
+}
+
 module.exports = {
   getProfiles, saveProfiles, getProfile, addProfile, updateProfile, deleteProfile,
   getSessions, saveSessions, getSession, addSession, updateSession, clearHistory,
@@ -290,4 +360,6 @@ module.exports = {
   getGitHubConfig, saveGitHubConfig,
   getSchedules, getSchedule, addSchedule, updateSchedule, deleteSchedule, toggleSchedule,
   getScheduleLog, addScheduleLogEntry, updateScheduleLogEntry, clearScheduleLog, getScheduleLogBySchedule,
+  getSkills, saveSkills, getSkill, addSkill, updateSkill, deleteSkill,
+  getWorkflows, saveWorkflows, getWorkflow, addWorkflow, updateWorkflow, deleteWorkflow,
 };

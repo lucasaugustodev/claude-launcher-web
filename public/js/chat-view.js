@@ -51,7 +51,7 @@ const ChatViewManager = {
       this._setState('idle');
     };
 
-    // Raw output handler for terminal toggle mode
+    // Raw output handler — only used for terminal fallback mode
     this._outputHandler = (msg) => {
       if (msg.sessionId !== sessionId) return;
       if (this._terminalFallback && this._fallbackTerm) {
@@ -64,8 +64,6 @@ const ChatViewManager = {
 
     API.attachSession(sessionId);
 
-    // In stream-json mode, process waits for user input before responding.
-    // Show input ready state so user can type their first message.
     if (this._streamJson) {
       this._addMessage('system', 'Sessao iniciada. Digite sua mensagem.');
       this._setState('input_wait');
@@ -177,11 +175,18 @@ const ChatViewManager = {
             this._setState('responding');
             this._addMessage('assistant', block.text);
           } else if (block.type === 'tool_use') {
-            this._setState('tool_exec');
-            var toolName = block.name || 'Tool';
-            var snippet = '';
-            try { snippet = JSON.stringify(block.input || {}).substring(0, 200); } catch (e) {}
-            this._addMessage('tool', toolName + '\n' + snippet);
+            if (block.name === 'AskUserQuestion' && block.input && block.input.questions) {
+              // Deduplicate: skip if we already have an active (unsent) ask
+              if (this._ask && !this._ask.sent) break;
+              this._setState('input_wait');
+              this._renderAskUserQuestion(block.id, block.input.questions);
+            } else {
+              this._setState('tool_exec');
+              var toolName = block.name || 'Tool';
+              var snippet = '';
+              try { snippet = JSON.stringify(block.input || {}).substring(0, 200); } catch (e) {}
+              this._addMessage('tool', toolName + '\n' + snippet);
+            }
           }
         }
         break;
@@ -250,6 +255,297 @@ const ChatViewManager = {
     }
   },
 
+  // ─── AskUserQuestion Renderer ───
+  // Paginated single-card: one question at a time, dots to navigate, auto-advance on select.
+  // No global IDs — all refs stored on _ask object to avoid conflicts.
+  _ask: null,
+
+  _renderAskUserQuestion(toolUseId, questions) {
+    var list = document.getElementById('chat-messages');
+    if (!list) return;
+    var self = this;
+
+    var ask = {
+      questions: questions,
+      selections: {},
+      page: 0,
+      sent: false,
+      card: null,
+      pageSlot: null,
+      dotsEl: null,
+      skipBtn: null,
+      sendBtn: null,
+    };
+    this._ask = ask;
+
+    // Store for replay
+    this._messages.push({
+      type: 'question',
+      content: JSON.stringify(questions),
+      toolUseId: toolUseId,
+      timestamp: Date.now()
+    });
+
+    // ── Build card ──
+    var card = document.createElement('div');
+    card.className = 'chat-msg chat-msg-question';
+    ask.card = card;
+
+    // Page content slot
+    var pageSlot = document.createElement('div');
+    pageSlot.className = 'chat-ask-page';
+    ask.pageSlot = pageSlot;
+    card.appendChild(pageSlot);
+
+    // Footer (only if >1 question)
+    if (questions.length > 1) {
+      var footer = document.createElement('div');
+      footer.className = 'chat-ask-footer';
+
+      var dotsEl = document.createElement('div');
+      dotsEl.className = 'chat-ask-dots';
+      ask.dotsEl = dotsEl;
+      footer.appendChild(dotsEl);
+
+      var btnsRow = document.createElement('div');
+      btnsRow.className = 'chat-ask-footer-btns';
+
+      var skipBtn = document.createElement('button');
+      skipBtn.className = 'btn btn-sm chat-ask-skip';
+      skipBtn.textContent = 'Pular';
+      skipBtn.addEventListener('click', function() { self._askGoNext(); });
+      ask.skipBtn = skipBtn;
+      btnsRow.appendChild(skipBtn);
+
+      var sendBtn = document.createElement('button');
+      sendBtn.className = 'btn btn-primary btn-sm chat-ask-send-btn';
+      sendBtn.textContent = 'Enviar (0/' + questions.length + ')';
+      sendBtn.disabled = true;
+      sendBtn.addEventListener('click', function() { self._submitAskAnswers(); });
+      ask.sendBtn = sendBtn;
+      btnsRow.appendChild(sendBtn);
+
+      footer.appendChild(btnsRow);
+      card.appendChild(footer);
+    }
+
+    list.appendChild(card);
+
+    // Render first page immediately (no animation)
+    this._askBuildPage(0, false);
+    this._askUpdateDots();
+    list.scrollTop = list.scrollHeight;
+  },
+
+  _askBuildPage(idx, animate) {
+    var ask = this._ask;
+    if (!ask || idx >= ask.questions.length) return;
+    ask.page = idx;
+    var q = ask.questions[idx];
+    var self = this;
+    var slot = ask.pageSlot;
+    if (!slot) return;
+
+    var render = function() {
+      slot.innerHTML = '';
+
+      if (q.header) {
+        var hdr = document.createElement('div');
+        hdr.className = 'chat-question-header';
+        hdr.textContent = q.header;
+        slot.appendChild(hdr);
+      }
+
+      var qText = document.createElement('div');
+      qText.className = 'chat-question-text';
+      qText.textContent = q.question;
+      slot.appendChild(qText);
+
+      var optDiv = document.createElement('div');
+      optDiv.className = 'chat-question-options';
+      var sel = ask.selections[idx] || null;
+
+      for (var o = 0; o < q.options.length; o++) {
+        var opt = q.options[o];
+        var btn = document.createElement('button');
+        btn.className = 'btn chat-option-btn';
+        if (sel === opt.label) btn.classList.add('chat-option-selected');
+        else if (sel) btn.classList.add('chat-option-dimmed');
+        btn.setAttribute('data-option-label', opt.label);
+
+        var lbl = document.createElement('span');
+        lbl.className = 'chat-option-label';
+        lbl.textContent = opt.label;
+        btn.appendChild(lbl);
+
+        if (opt.description) {
+          var desc = document.createElement('span');
+          desc.className = 'chat-option-desc';
+          desc.textContent = opt.description;
+          btn.appendChild(desc);
+        }
+
+        btn.addEventListener('click', (function(label) {
+          return function() { self._askSelect(idx, label); };
+        })(opt.label));
+
+        optDiv.appendChild(btn);
+      }
+      slot.appendChild(optDiv);
+
+      if (animate) {
+        slot.classList.add('chat-ask-page-enter');
+        setTimeout(function() { slot.classList.remove('chat-ask-page-enter'); }, 200);
+      }
+    };
+
+    if (animate) {
+      slot.classList.add('chat-ask-page-exit');
+      setTimeout(function() {
+        slot.classList.remove('chat-ask-page-exit');
+        render();
+      }, 120);
+    } else {
+      render();
+    }
+
+    // Update skip visibility
+    if (ask.skipBtn) {
+      ask.skipBtn.style.display = (idx < ask.questions.length - 1) ? '' : 'none';
+    }
+  },
+
+  _askUpdateDots() {
+    var ask = this._ask;
+    if (!ask || !ask.dotsEl) return;
+    var dotsEl = ask.dotsEl;
+    var self = this;
+    dotsEl.innerHTML = '';
+
+    for (var i = 0; i < ask.questions.length; i++) {
+      var dot = document.createElement('button');
+      dot.className = 'chat-ask-dot';
+      if (i === ask.page) dot.classList.add('chat-ask-dot-active');
+      if (ask.selections[i]) dot.classList.add('chat-ask-dot-answered');
+      dot.setAttribute('title', (i + 1) + '/' + ask.questions.length +
+        (ask.selections[i] ? ' — ' + ask.selections[i] : ''));
+      dot.addEventListener('click', (function(idx) {
+        return function() {
+          if (!ask.sent) self._askBuildPage(idx, true);
+          self._askUpdateDots();
+        };
+      })(i));
+      dotsEl.appendChild(dot);
+    }
+
+    // Update send button
+    if (ask.sendBtn) {
+      var count = Object.keys(ask.selections).length;
+      var total = ask.questions.length;
+      ask.sendBtn.disabled = count === 0;
+      if (count === total) {
+        ask.sendBtn.textContent = 'Enviar Tudo (' + count + ')';
+      } else {
+        ask.sendBtn.textContent = 'Enviar (' + count + '/' + total + ')';
+      }
+    }
+  },
+
+  _askSelect(qIdx, label) {
+    var ask = this._ask;
+    if (!ask || ask.sent) return;
+    ask.selections[qIdx] = label;
+
+    // Highlight selected, dim others
+    var btns = ask.pageSlot.querySelectorAll('.chat-option-btn');
+    for (var b = 0; b < btns.length; b++) {
+      if (btns[b].getAttribute('data-option-label') === label) {
+        btns[b].classList.add('chat-option-selected');
+        btns[b].classList.remove('chat-option-dimmed');
+      } else {
+        btns[b].classList.remove('chat-option-selected');
+        btns[b].classList.add('chat-option-dimmed');
+      }
+    }
+
+    this._askUpdateDots();
+
+    // Auto-advance or auto-submit
+    var self = this;
+    var total = ask.questions.length;
+
+    if (total === 1) {
+      // Single question — submit immediately
+      setTimeout(function() { self._submitAskAnswers(); }, 400);
+      return;
+    }
+
+    var next = null;
+    for (var i = qIdx + 1; i < total; i++) {
+      if (!ask.selections[i]) { next = i; break; }
+    }
+    if (next === null) {
+      for (var i = 0; i <= qIdx; i++) {
+        if (!ask.selections[i]) { next = i; break; }
+      }
+    }
+
+    if (next !== null) {
+      setTimeout(function() {
+        self._askBuildPage(next, true);
+        self._askUpdateDots();
+      }, 400);
+    } else {
+      // All answered
+      setTimeout(function() { self._submitAskAnswers(); }, 600);
+    }
+  },
+
+  _askGoNext() {
+    var ask = this._ask;
+    if (!ask) return;
+    var next = ask.page + 1;
+    if (next >= ask.questions.length) next = 0;
+    this._askBuildPage(next, true);
+    this._askUpdateDots();
+  },
+
+  _submitAskAnswers() {
+    var ask = this._ask;
+    if (!ask || ask.sent) return;
+    var count = Object.keys(ask.selections).length;
+    if (count === 0) return;
+    ask.sent = true;
+
+    var answers = [];
+    for (var q = 0; q < ask.questions.length; q++) {
+      if (ask.selections[q]) answers.push(ask.selections[q]);
+    }
+    var answerText = answers.join('\n');
+
+    this._addMessage('user', answerText);
+
+    // Lock card
+    if (ask.card) ask.card.classList.add('chat-ask-card-sent');
+    if (ask.sendBtn) { ask.sendBtn.textContent = 'Enviado'; ask.sendBtn.disabled = true; }
+    if (ask.skipBtn) ask.skipBtn.style.display = 'none';
+
+    // Send
+    if (this._streamJson) {
+      API.sendStreamJsonInput(this._currentSessionId, answerText);
+    } else {
+      var sid = this._currentSessionId;
+      var chars = answerText.split('');
+      chars.forEach(function(ch, i) {
+        setTimeout(function() { API.sendInput(sid, ch); }, i * 10);
+      });
+      setTimeout(function() { API.sendInput(sid, '\r'); }, chars.length * 10 + 20);
+    }
+
+    this._setState('thinking');
+    this._updateThinkingIndicator('Processando');
+  },
+
   _addMessage(type, content) {
     if (!content || !content.trim()) return;
 
@@ -307,6 +603,32 @@ const ChatViewManager = {
         snippet.className = 'chat-tool-snippet';
         snippet.textContent = rest;
         contentEl.appendChild(snippet);
+      }
+    } else if (msg.type === 'question') {
+      // Replay saved questions as static summary
+      try {
+        var questions = JSON.parse(msg.content);
+        if (!Array.isArray(questions)) questions = [questions];
+        for (var qi = 0; qi < questions.length; qi++) {
+          var qData = questions[qi];
+          if (qi > 0) {
+            var sep = document.createElement('hr');
+            sep.className = 'chat-question-sep';
+            contentEl.appendChild(sep);
+          }
+          if (qData.header) {
+            var hdr = document.createElement('div');
+            hdr.className = 'chat-question-header';
+            hdr.textContent = qData.header;
+            contentEl.appendChild(hdr);
+          }
+          var qt = document.createElement('div');
+          qt.className = 'chat-question-text';
+          qt.textContent = qData.question;
+          contentEl.appendChild(qt);
+        }
+      } catch (e) {
+        contentEl.textContent = msg.content;
       }
     } else {
       var lines = msg.content.split('\n');
@@ -634,8 +956,8 @@ const ChatViewManager = {
 };
 
 // ─── View Manager Router ───
-// Returns ChatViewManager on mobile (<= 768px), TerminalManager on desktop.
+// Always returns ChatViewManager with stream-json for a unified chat experience.
+// Toggle button allows switching to raw terminal view when needed.
 function getViewManager() {
-  if (window.innerWidth <= 768) return ChatViewManager;
-  return TerminalManager;
+  return ChatViewManager;
 }

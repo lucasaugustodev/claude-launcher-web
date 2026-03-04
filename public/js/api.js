@@ -317,6 +317,48 @@ const API = {
     return result;
   },
 
+  startGeminiCLIAuth() {
+    return this.fetch('api/gemini-cli/auth', { method: 'POST' });
+  },
+
+  // ─── Claude Code CLI ───
+
+  getClaudeCLIStatus() {
+    return this.fetch('api/claude-cli/status');
+  },
+
+  async installClaudeCLI(onProgress) {
+    const headers = {};
+    if (this._token) headers['Authorization'] = 'Bearer ' + this._token;
+
+    const res = await fetch(_url('api/claude-cli/install'), { method: 'POST', headers });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let result = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value);
+      const lines = text.split('\n').filter(l => l.startsWith('data: '));
+      for (const line of lines) {
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.type === 'progress' && onProgress) onProgress(data.text);
+          if (data.type === 'done') result = data;
+          if (data.type === 'error') throw new Error(data.message);
+        } catch (e) {
+          if (e.message && !e.message.includes('JSON')) throw e;
+        }
+      }
+    }
+    return result;
+  },
+
+  startClaudeCLIAuth() {
+    return this.fetch('api/claude-cli/auth', { method: 'POST' });
+  },
+
   // ─── Gemini Sessions ───
 
   getActiveGeminiSessions() {
@@ -584,4 +626,60 @@ const API = {
   clearScheduleLog() {
     return this.fetch('api/schedules/log', { method: 'DELETE' });
   },
+
+  // ─── Skills ───
+
+  getSkills() {
+    return this.fetch('api/skills');
+  },
+
+  getSkillDetail(scope, name) {
+    return this.fetch(`api/skills/${encodeURIComponent(scope)}/${encodeURIComponent(name)}`);
+  },
+
+  createSkill(data) {
+    return this.fetch('api/skills', { method: 'POST', body: JSON.stringify(data) });
+  },
+
+  updateSkill(name, raw) {
+    return this.fetch(`api/skills/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify({ raw }) });
+  },
+
+  deleteSkill(name) {
+    return this.fetch(`api/skills/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  },
+
+  // ─── Gemini Skills ───
+
+  getGeminiSkills() {
+    return this.fetch('api/gemini-skills');
+  },
+
+  getGeminiCommand(name) {
+    return this.fetch(`api/gemini-skills/command/${encodeURIComponent(name)}`);
+  },
+
+  createGeminiCommand(data) {
+    return this.fetch('api/gemini-skills/command', { method: 'POST', body: JSON.stringify(data) });
+  },
+
+  updateGeminiCommand(name, raw) {
+    return this.fetch(`api/gemini-skills/command/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify({ raw }) });
+  },
+
+  deleteGeminiCommand(name) {
+    return this.fetch(`api/gemini-skills/command/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  },
+
+  // ─── Workflows (BMAD) ───
+
+  getWorkflows() { return this.fetch('api/workflows'); },
+  getWorkflow(id) { return this.fetch(`api/workflows/${id}`); },
+  getWorkflowAgents() { return this.fetch('api/workflows/agents'); },
+  createWorkflow(data) { return this.fetch('api/workflows', { method: 'POST', body: JSON.stringify(data) }); },
+  updateWorkflow(id, data) { return this.fetch(`api/workflows/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  deleteWorkflow(id) { return this.fetch(`api/workflows/${id}`, { method: 'DELETE' }); },
+  advanceWorkflow(id, note) { return this.fetch(`api/workflows/${id}/advance`, { method: 'POST', body: JSON.stringify({ note }) }); },
+  addWorkflowArtifact(id, artifact) { return this.fetch(`api/workflows/${id}/artifacts`, { method: 'POST', body: JSON.stringify(artifact) }); },
+  launchWorkflowAgent(id, agentOverride) { return this.fetch(`api/workflows/${id}/launch`, { method: 'POST', body: JSON.stringify({ agentOverride }) }); },
 };

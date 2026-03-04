@@ -118,6 +118,192 @@
   border-radius: 8px;
 }
 
+/* ─── AskUserQuestion Messages ─── */
+.chat-msg-question {
+  align-self: flex-start;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  max-width: 100%;
+  padding: 12px 16px;
+}
+
+.chat-question-header {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+
+.chat-question-text {
+  font-size: 14px;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.chat-question-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chat-option-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  padding: 10px 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  width: 100%;
+}
+
+.chat-option-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(137, 180, 250, 0.08);
+}
+
+.chat-option-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.chat-option-btn.chat-option-selected {
+  border-color: var(--accent);
+  background: rgba(137, 180, 250, 0.15);
+}
+
+.chat-option-btn.chat-option-dimmed {
+  opacity: 0.4;
+  border-color: var(--border);
+  background: var(--bg-primary);
+}
+
+.chat-option-btn.chat-option-dimmed:hover {
+  opacity: 0.7;
+  border-color: var(--text-muted);
+}
+
+.chat-option-label {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.chat-option-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ─── Paginated Question Footer ─── */
+.chat-ask-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  gap: 10px;
+}
+
+/* Dot indicators */
+.chat-ask-dots {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.chat-ask-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.chat-ask-dot-active {
+  border-color: var(--accent);
+  transform: scale(1.25);
+}
+
+.chat-ask-dot-answered {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.chat-ask-dot-active.chat-ask-dot-answered {
+  box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent);
+}
+
+/* Footer buttons */
+.chat-ask-footer-btns {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.chat-ask-skip {
+  color: var(--text-muted);
+  border-color: var(--border);
+  font-size: 12px;
+}
+
+.chat-ask-send-btn {
+  border-radius: 16px;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  transition: opacity 0.15s;
+}
+
+.chat-ask-send-btn:disabled {
+  opacity: 0.35;
+}
+
+/* Page transition */
+.chat-ask-page {
+  transition: opacity 0.12s, transform 0.12s;
+  min-height: 80px;
+}
+
+.chat-ask-page-exit {
+  opacity: 0;
+  transform: translateX(-8px);
+}
+
+.chat-ask-page-enter {
+  animation: askPageIn 0.2s ease forwards;
+}
+
+@keyframes askPageIn {
+  from { opacity: 0; transform: translateX(8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Sent state */
+.chat-ask-card-sent {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Question separator (replay) */
+.chat-question-sep {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 8px 0;
+}
+
 /* ─── Thinking Indicator ─── */
 .chat-msg-thinking {
   align-self: flex-start;
@@ -231,10 +417,38 @@
   padding: 4px 8px;
 }
 
-/* Hide toggle on desktop - never needed */
+/* ─── Desktop Adjustments ─── */
 @media (min-width: 769px) {
-  #chat-toggle-btn {
-    display: none;
+  .chat-msg {
+    max-width: 70%;
+  }
+
+  .chat-msg-tool {
+    max-width: 80%;
+  }
+
+  .chat-msg-system {
+    max-width: 60%;
+  }
+
+  .chat-msg-question {
+    max-width: 70%;
+  }
+
+  .chat-messages {
+    padding: 16px 24px;
+  }
+
+  .chat-input-area {
+    padding: 12px 24px 16px;
+  }
+
+  .chat-input {
+    max-width: 800px;
+  }
+
+  .chat-action-bar {
+    padding: 8px 24px;
   }
 }
 

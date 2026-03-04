@@ -1,7 +1,4 @@
 const { execFile, spawn } = require('child_process');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
 
 // ─── Cache (avoids slow re-checks on every tab visit) ───
 
@@ -14,11 +11,11 @@ function invalidateCache() {
   _cacheTime = 0;
 }
 
-// ─── Check if Gemini CLI is installed ───
+// ─── Check if Claude Code CLI is installed ───
 
 function checkInstalled() {
   return new Promise((resolve) => {
-    execFile('gemini', ['--version'], { timeout: 15000, shell: true }, (err, stdout) => {
+    execFile('claude', ['--version'], { timeout: 15000, shell: true }, (err, stdout) => {
       if (err) return resolve({ installed: false, version: null });
       const output = (stdout || '').trim();
       const match = output.match(/([\d.]+)/);
@@ -27,55 +24,33 @@ function checkInstalled() {
   });
 }
 
-// ─── Check if Gemini is authenticated ───
+// ─── Check if Claude Code is authenticated ───
 
 function checkAuth() {
-  // Check env vars
-  if (process.env.GEMINI_API_KEY) {
-    return { authenticated: true, user: 'API Key' };
-  }
-  if (process.env.GOOGLE_GENAI_USE_VERTEXAI) {
-    return { authenticated: true, user: 'Vertex AI' };
-  }
-  // Check settings.json for auth config
-  const settingsPath = path.join(os.homedir(), '.gemini', 'settings.json');
-  try {
-    if (fs.existsSync(settingsPath)) {
-      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-      if (settings.authType || settings.apiKey || settings.googleApiKey) {
-        return { authenticated: true, user: settings.authType || 'configurado' };
-      }
-    }
-  } catch {}
-  // Check if OAuth tokens exist
-  const credPaths = [
-    path.join(os.homedir(), '.gemini', 'oauth_creds.json'),
-    path.join(os.homedir(), '.gemini', 'google_application_default_credentials.json'),
-  ];
-  for (const p of credPaths) {
-    try {
-      if (fs.existsSync(p)) {
-        return { authenticated: true, user: 'Google OAuth' };
-      }
-    } catch {}
-  }
-  // Try running gemini to see if it errors about auth
-  return null; // unknown, will be resolved async
-}
-
-function checkAuthAsync() {
   return new Promise((resolve) => {
-    const sync = checkAuth();
-    if (sync) return resolve(sync);
-    // Quick test: run gemini with a simple prompt to see if auth fails
-    execFile('gemini', ['-p', 'hi'], { timeout: 10000, shell: true }, (err, stdout, stderr) => {
+    execFile('claude', ['auth', 'status'], { timeout: 15000, shell: true }, (err, stdout, stderr) => {
       const output = ((stdout || '') + (stderr || '')).trim();
-      if (output.includes('Please set an Auth method') || output.includes('GEMINI_API_KEY')) {
-        resolve({ authenticated: false, user: null });
-      } else if (err) {
-        resolve({ authenticated: false, user: null });
-      } else {
-        resolve({ authenticated: true, user: 'Google OAuth' });
+      if (err && !output) {
+        return resolve({ authenticated: false, user: null });
+      }
+      try {
+        const data = JSON.parse(output);
+        if (data.loggedIn) {
+          resolve({
+            authenticated: true,
+            user: data.email || null,
+            authMethod: data.authMethod || null,
+            orgName: data.orgName || null,
+          });
+        } else {
+          resolve({ authenticated: false, user: null });
+        }
+      } catch {
+        if (output.includes('loggedIn') || output.includes('true')) {
+          resolve({ authenticated: true, user: null });
+        } else {
+          resolve({ authenticated: false, user: null });
+        }
       }
     });
   });
@@ -94,13 +69,13 @@ async function getStatus() {
     _cacheTime = Date.now();
     return _cache;
   }
-  const auth = await checkAuthAsync();
+  const auth = await checkAuth();
   _cache = { ...installed, ...auth };
   _cacheTime = Date.now();
   return _cache;
 }
 
-// ─── Install Gemini CLI via npm ───
+// ─── Install Claude Code CLI via npm ───
 
 function install(onProgress) {
   return new Promise((resolve, reject) => {
@@ -109,10 +84,10 @@ function install(onProgress) {
     const needsSudo = !isWin && !isRoot;
     const cmd = needsSudo ? 'sudo' : (isWin ? 'npm.cmd' : 'npm');
     const args = needsSudo
-      ? ['npm', 'install', '-g', '@google/gemini-cli']
-      : ['install', '-g', '@google/gemini-cli'];
+      ? ['npm', 'install', '-g', '@anthropic-ai/claude-code']
+      : ['install', '-g', '@anthropic-ai/claude-code'];
 
-    if (onProgress) onProgress(needsSudo ? '>>> sudo npm install -g @google/gemini-cli\n' : '>>> npm install -g @google/gemini-cli\n');
+    if (onProgress) onProgress(needsSudo ? '>>> sudo npm install -g @anthropic-ai/claude-code\n' : '>>> npm install -g @anthropic-ai/claude-code\n');
 
     const proc = spawn(cmd, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
