@@ -3204,7 +3204,7 @@ async function renderVoiceManagerPage(container) {
     fd.append('audio', blob, 'recording.webm');
 
     try {
-      var resp = await fetch(API.base + '/api/voice/transcribe', {
+      var resp = await fetch(_url('api/voice/transcribe'), {
         method: 'POST',
         headers: { 'Authorization': 'Bearer ' + API.token },
         body: fd
