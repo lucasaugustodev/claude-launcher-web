@@ -80,8 +80,27 @@ const ChatViewManager = {
 
     document.getElementById('terminal-overlay').style.display = 'flex';
 
-    // Init avatar after UI is ready
-    this._initVoiceAvatar();
+    // Init avatar after UI is ready (delayed to let terminal-title be set)
+    var self = this;
+    setTimeout(function() { self._maybeInitVoiceAvatar(); }, 500);
+  },
+
+  _isVoiceAgentSession() {
+    var title = (document.getElementById('terminal-title') || {}).textContent || '';
+    return title.toLowerCase().indexOf('manager-gestor') !== -1;
+  },
+
+  _maybeInitVoiceAvatar() {
+    if (this._isVoiceAgentSession()) {
+      this._initVoiceAvatar();
+      // Show avatar panel and mic
+      var panel = document.getElementById('chat-voice-avatar-panel');
+      if (panel) panel.classList.remove('hidden');
+    } else {
+      // Hide avatar panel for non-voice sessions
+      var panel = document.getElementById('chat-voice-avatar-panel');
+      if (panel) panel.classList.add('hidden');
+    }
   },
 
   _buildUI() {
