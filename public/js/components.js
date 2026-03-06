@@ -3132,7 +3132,7 @@ async function renderVoiceManagerPage(container) {
     try {
       var resp = await fetch(_url('api/voice/tts'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API.token },
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API._token },
         body: JSON.stringify({ text: text.substring(0, 500), voice: voice, lipsync: true })
       });
       if (!resp.ok) return;
@@ -3206,7 +3206,7 @@ async function renderVoiceManagerPage(container) {
     try {
       var resp = await fetch(_url('api/voice/transcribe'), {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + API.token },
+        headers: { 'Authorization': 'Bearer ' + API._token },
         body: fd
       });
       var data = await resp.json();
