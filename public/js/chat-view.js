@@ -17,6 +17,15 @@ const ChatViewManager = {
   _terminalFallback: false,
   _fallbackTerm: null,
   _fallbackFit: null,
+  // Voice + Avatar
+  _voiceHead: null,
+  _voiceAvatarReady: false,
+  _voiceRecording: false,
+  _voiceMediaRecorder: null,
+  _voiceAudioChunks: [],
+  _voiceTimerInterval: null,
+  _voiceAvatarVisible: true,
+  _voiceSpeaking: false,
 
   open(sessionId, { streamJson } = {}) {
     this._currentSessionId = sessionId;
