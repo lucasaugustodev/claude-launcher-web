@@ -135,13 +135,21 @@ const ChatViewManager = {
     input.setAttribute('autocorrect', 'off');
     input.setAttribute('autocapitalize', 'off');
 
-    // Mic button
+    // Mic button (push-to-talk)
     const micBtn = document.createElement('button');
     micBtn.className = 'chat-mic-btn';
     micBtn.id = 'chat-mic-btn';
     micBtn.innerHTML = '&#127908;';
     micBtn.title = 'Clique para falar';
     micBtn.addEventListener('click', () => this._toggleVoiceRecording());
+
+    // Continuous listening toggle
+    const contBtn = document.createElement('button');
+    contBtn.className = 'chat-mic-btn chat-continuous-btn';
+    contBtn.id = 'chat-continuous-btn';
+    contBtn.innerHTML = '&#9898;'; // circle - will change to red when active
+    contBtn.title = 'Modo contínuo (escuta aberta)';
+    contBtn.addEventListener('click', () => this._toggleContinuousMode());
 
     const sendBtn = document.createElement('button');
     sendBtn.className = 'btn btn-primary chat-send-btn';
@@ -150,6 +158,7 @@ const ChatViewManager = {
     sendBtn.addEventListener('click', () => this._sendMessage());
 
     inputArea.appendChild(micBtn);
+    inputArea.appendChild(contBtn);
     inputArea.appendChild(input);
     inputArea.appendChild(sendBtn);
 
