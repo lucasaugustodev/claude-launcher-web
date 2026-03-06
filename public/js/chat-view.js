@@ -160,18 +160,41 @@ const ChatViewManager = {
   _addToggleButton() {
     const existing = document.getElementById('chat-toggle-btn');
     if (existing) existing.remove();
+    const existingAvToggle = document.getElementById('chat-avatar-toggle');
+    if (existingAvToggle) existingAvToggle.remove();
+    const existingVoiceSel = document.getElementById('chat-voice-select');
+    if (existingVoiceSel) existingVoiceSel.remove();
 
+    const header = document.querySelector('.terminal-header');
+    const stopBtn = document.getElementById('terminal-stop');
+    if (!header || !stopBtn) return;
+
+    // Voice select
+    const voiceSelect = document.createElement('select');
+    voiceSelect.className = 'chat-voice-select';
+    voiceSelect.id = 'chat-voice-select';
+    voiceSelect.innerHTML = '<option value="pt-BR-AntonioNeural" selected>Antonio</option><option value="pt-BR-FranciscaNeural">Francisca</option><option value="pt-BR-ThalitaMultilingualNeural">Thalita</option>';
+    header.insertBefore(voiceSelect, stopBtn);
+
+    // Avatar toggle
+    const avatarToggle = document.createElement('button');
+    avatarToggle.className = 'btn btn-sm';
+    avatarToggle.id = 'chat-avatar-toggle';
+    avatarToggle.textContent = 'Avatar';
+    avatarToggle.addEventListener('click', () => {
+      this._voiceAvatarVisible = !this._voiceAvatarVisible;
+      var panel = document.getElementById('chat-voice-avatar-panel');
+      if (panel) panel.classList.toggle('hidden', !this._voiceAvatarVisible);
+    });
+    header.insertBefore(avatarToggle, stopBtn);
+
+    // Terminal toggle
     const toggleBtn = document.createElement('button');
     toggleBtn.className = 'btn btn-sm';
     toggleBtn.id = 'chat-toggle-btn';
     toggleBtn.textContent = 'Terminal';
     toggleBtn.addEventListener('click', () => this._toggleTerminalFallback());
-
-    const header = document.querySelector('.terminal-header');
-    const stopBtn = document.getElementById('terminal-stop');
-    if (header && stopBtn) {
-      header.insertBefore(toggleBtn, stopBtn);
-    }
+    header.insertBefore(toggleBtn, stopBtn);
   },
 
   // ─── Stream JSON event handler (NDJSON from -p --output-format stream-json) ───
