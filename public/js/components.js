@@ -3130,7 +3130,7 @@ async function renderVoiceManagerPage(container) {
   async function speakWithAvatar(text) {
     var voice = document.getElementById('vm-voice').value;
     try {
-      var resp = await fetch(API.base + '/api/voice/tts', {
+      var resp = await fetch(_url('api/voice/tts'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API.token },
         body: JSON.stringify({ text: text.substring(0, 500), voice: voice, lipsync: true })
