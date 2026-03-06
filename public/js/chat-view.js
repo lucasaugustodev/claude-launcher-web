@@ -1161,8 +1161,8 @@ const ChatViewManager = {
     if (!this._isVoiceAgentSession()) return;
     this._voiceSentenceBuffer += text;
 
-    // Split on sentence boundaries (. ! ?) followed by space or end
-    var parts = this._voiceSentenceBuffer.split(/(?<=[.!?])\s+/);
+    // Split on sentence boundaries (. ! ?) or newlines
+    var parts = this._voiceSentenceBuffer.split(/(?<=[.!?])\s+|\n+/);
     // Keep last part as buffer (may be incomplete)
     this._voiceSentenceBuffer = parts.pop() || '';
 
