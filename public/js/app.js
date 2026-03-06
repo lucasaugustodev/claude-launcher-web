@@ -1520,6 +1520,7 @@ function ContentRouter({ page }) {
     case 'gemini-cli': return html`<${LegacyPage} renderFn=${renderGeminiCliPage} />`;
     case 'claude-agents': return html`<${LegacyPage} renderFn=${renderClaudeAgentsPage} />`;
     case 'agent-profiles': return html`<${LegacyPage} renderFn=${renderAgentProfilesPage} />`;
+    case 'voice-manager': return html`<${LegacyPage} renderFn=${renderVoiceManagerPage} />`;
     default: return null;
   }
 }
