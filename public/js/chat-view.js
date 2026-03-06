@@ -252,9 +252,9 @@ const ChatViewManager = {
           if (block.type === 'text' && block.text) {
             this._setState('responding');
             this._addMessage('assistant', block.text);
-            // Speak assistant text via avatar
-            if (block.text.length > 5 && block.text.length < 2000) {
-              this._speakWithAvatar(block.text);
+            // Stream sentences to avatar TTS
+            if (this._isVoiceAgentSession()) {
+              this._feedVoiceText(block.text);
             }
           } else if (block.type === 'tool_use') {
             if (block.name === 'AskUserQuestion' && block.input && block.input.questions) {
@@ -310,8 +310,8 @@ const ChatViewManager = {
       case 'response_text':
         this._setState('responding');
         this._addMessage('assistant', action.text);
-        if (action.text && action.text.length > 5 && action.text.length < 2000) {
-          this._speakWithAvatar(action.text);
+        if (this._isVoiceAgentSession() && action.text) {
+          this._feedVoiceText(action.text);
         }
         break;
 
