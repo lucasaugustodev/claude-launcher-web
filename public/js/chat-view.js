@@ -1271,6 +1271,9 @@ const ChatViewManager = {
     this._destroyVoiceAvatar();
     this._voiceRecording = false;
     this._voiceSpeaking = false;
+    this._voiceTtsQueue = [];
+    this._voiceTtsPlaying = false;
+    this._voiceSentenceBuffer = '';
     clearInterval(this._voiceTimerInterval);
 
     // Remove header buttons
