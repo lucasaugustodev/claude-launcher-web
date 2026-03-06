@@ -1080,7 +1080,7 @@ const ChatViewManager = {
 
     fetch(_url('api/voice/transcribe'), {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + API.token },
+      headers: { 'Authorization': 'Bearer ' + API._token },
       body: fd
     }).then(function(resp) { return resp.json(); }).then(function(data) {
       // Remove "Transcrevendo..." message
@@ -1140,9 +1140,9 @@ const ChatViewManager = {
     var voice = voiceSelect ? voiceSelect.value : 'pt-BR-AntonioNeural';
 
     this._voiceSpeaking = true;
-    fetch(API.base + '/api/voice/tts', {
+    fetch(_url('api/voice/tts'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API.token },
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API._token },
       body: JSON.stringify({ text: text.substring(0, 500), voice: voice, lipsync: true })
     }).then(function(resp) { return resp.json(); }).then(function(data) {
       if (data.error || !data.audio) { self._voiceSpeaking = false; return; }
