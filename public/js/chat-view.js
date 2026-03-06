@@ -1186,7 +1186,29 @@ const ChatViewManager = {
     }
   },
 
-  // Process TTS queue sequentially
+  // Fetch TTS for a sentence, return promise with decoded audio data
+  _fetchTts(sentence) {
+    var self = this;
+    var voiceSelect = document.getElementById('chat-voice-select');
+    var voice = voiceSelect ? voiceSelect.value : 'pt-BR-AntonioNeural';
+
+    return fetch(_url('api/voice/tts'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API._token },
+      body: JSON.stringify({ text: sentence.substring(0, 500), voice: voice, lipsync: true })
+    }).then(function(resp) { return resp.json(); }).then(function(data) {
+      if (data.error || !data.audio) return null;
+      var audioBytes = Uint8Array.from(atob(data.audio), function(c) { return c.charCodeAt(0); });
+      return self._voiceHead.audioCtx.decodeAudioData(audioBytes.buffer.slice(0)).then(function(audioBuffer) {
+        return { audioBuffer: audioBuffer, words: data.words || [], wtimes: data.wtimes || [], wdurations: data.wdurations || [] };
+      });
+    }).catch(function(err) {
+      console.error('TTS fetch error:', err);
+      return null;
+    });
+  },
+
+  // Process TTS queue - pre-fetches next sentence while current plays
   _processVoiceQueue() {
     if (this._voiceTtsPlaying) return;
     if (this._voiceTtsQueue.length === 0) return;
@@ -1197,42 +1219,62 @@ const ChatViewManager = {
 
     var self = this;
     var sentence = this._voiceTtsQueue.shift();
-    var voiceSelect = document.getElementById('chat-voice-select');
-    var voice = voiceSelect ? voiceSelect.value : 'pt-BR-AntonioNeural';
-
     this._voiceTtsPlaying = true;
-    fetch(_url('api/voice/tts'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API._token },
-      body: JSON.stringify({ text: sentence.substring(0, 500), voice: voice, lipsync: true })
-    }).then(function(resp) { return resp.json(); }).then(function(data) {
-      if (data.error || !data.audio) {
+
+    this._fetchTts(sentence).then(function(ttsData) {
+      if (!ttsData || !self._voiceHead) {
         self._voiceTtsPlaying = false;
         self._processVoiceQueue();
         return;
       }
 
-      var audioBytes = Uint8Array.from(atob(data.audio), function(c) { return c.charCodeAt(0); });
-      return self._voiceHead.audioCtx.decodeAudioData(audioBytes.buffer.slice(0)).then(function(audioBuffer) {
-        self._voiceHead.speakAudio({
-          audio: audioBuffer,
-          words: data.words || [],
-          wtimes: data.wtimes || [],
-          wdurations: data.wdurations || [],
-          markers: [function() { self._voiceHead.lookAtCamera(100); }],
-          mtimes: [0]
-        });
-        // Wait for audio to finish, then process next in queue
-        var duration = audioBuffer.duration * 1000 + 300;
-        setTimeout(function() {
+      // Start playing current sentence
+      self._voiceHead.speakAudio({
+        audio: ttsData.audioBuffer,
+        words: ttsData.words,
+        wtimes: ttsData.wtimes,
+        wdurations: ttsData.wdurations,
+        markers: [function() { self._voiceHead.lookAtCamera(100); }],
+        mtimes: [0]
+      });
+
+      var duration = ttsData.audioBuffer.duration * 1000;
+
+      // Pre-fetch next sentence while current plays
+      var nextPromise = null;
+      if (self._voiceTtsQueue.length > 0) {
+        var nextSentence = self._voiceTtsQueue.shift();
+        nextPromise = self._fetchTts(nextSentence);
+      }
+
+      // When current finishes, play pre-fetched or continue queue
+      setTimeout(function() {
+        if (nextPromise) {
+          nextPromise.then(function(nextData) {
+            if (nextData && self._voiceHead) {
+              self._voiceHead.speakAudio({
+                audio: nextData.audioBuffer,
+                words: nextData.words,
+                wtimes: nextData.wtimes,
+                wdurations: nextData.wdurations,
+                markers: [function() { self._voiceHead.lookAtCamera(100); }],
+                mtimes: [0]
+              });
+              var nextDuration = nextData.audioBuffer.duration * 1000;
+              setTimeout(function() {
+                self._voiceTtsPlaying = false;
+                self._processVoiceQueue();
+              }, nextDuration + 200);
+            } else {
+              self._voiceTtsPlaying = false;
+              self._processVoiceQueue();
+            }
+          });
+        } else {
           self._voiceTtsPlaying = false;
           self._processVoiceQueue();
-        }, duration);
-      });
-    }).catch(function(err) {
-      console.error('TTS error:', err);
-      self._voiceTtsPlaying = false;
-      self._processVoiceQueue();
+        }
+      }, duration + 200);
     });
   },
 
