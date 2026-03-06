@@ -110,18 +110,39 @@ const ChatViewManager = {
     input.setAttribute('autocorrect', 'off');
     input.setAttribute('autocapitalize', 'off');
 
+    // Mic button
+    const micBtn = document.createElement('button');
+    micBtn.className = 'chat-mic-btn';
+    micBtn.id = 'chat-mic-btn';
+    micBtn.innerHTML = '&#127908;';
+    micBtn.title = 'Clique para falar';
+    micBtn.addEventListener('click', () => this._toggleVoiceRecording());
+
     const sendBtn = document.createElement('button');
     sendBtn.className = 'btn btn-primary chat-send-btn';
     sendBtn.id = 'chat-send-btn';
     sendBtn.textContent = 'Enviar';
     sendBtn.addEventListener('click', () => this._sendMessage());
 
+    inputArea.appendChild(micBtn);
     inputArea.appendChild(input);
     inputArea.appendChild(sendBtn);
+
+    // Avatar panel (floating, top-right)
+    const avatarPanel = document.createElement('div');
+    avatarPanel.className = 'chat-voice-avatar-panel' + (this._voiceAvatarVisible ? '' : ' hidden');
+    avatarPanel.id = 'chat-voice-avatar-panel';
+
+    const avatarLoading = document.createElement('div');
+    avatarLoading.className = 'chat-voice-avatar-loading';
+    avatarLoading.id = 'chat-voice-avatar-loading';
+    avatarLoading.textContent = 'Carregando avatar...';
+    avatarPanel.appendChild(avatarLoading);
 
     container.appendChild(messageList);
     container.appendChild(actionBar);
     container.appendChild(inputArea);
+    container.appendChild(avatarPanel);
 
     // Enter key sends message
     input.addEventListener('keydown', (e) => {
