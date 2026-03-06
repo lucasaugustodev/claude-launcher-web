@@ -1351,14 +1351,20 @@ const ChatViewManager = {
     });
   },
 
-  // Feed text to TTS - only split on paragraphs, keep sentences together
+  // Feed text to TTS - send as single block for short texts, split paragraphs for long
   _feedVoiceText(text) {
     if (!this._isVoiceAgentSession()) return;
     this._voiceSentenceBuffer += text;
 
-    // Only split on double newlines (paragraphs), not on every sentence
-    var parts = this._voiceSentenceBuffer.split(/\n\s*\n/);
-    // Keep last part as buffer (may be incomplete)
+    // For short texts (<300 chars), don't split - send as one TTS call
+    // Only split long texts on double newlines (paragraphs)
+    var buf = this._voiceSentenceBuffer;
+    if (buf.length < 300) {
+      // Wait for flush - text might still be arriving
+      return;
+    }
+
+    var parts = buf.split(/\n\s*\n/);
     this._voiceSentenceBuffer = parts.pop() || '';
 
     for (var i = 0; i < parts.length; i++) {
@@ -1367,7 +1373,6 @@ const ChatViewManager = {
         this._voiceTtsQueue.push(chunk);
       }
     }
-    // Start playing immediately - don't wait for full response
     this._processVoiceQueue();
   },
 
