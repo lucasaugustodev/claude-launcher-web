@@ -1156,19 +1156,34 @@ const ChatViewManager = {
     }
   },
 
-  // Feed text block directly to TTS queue (full block, no sentence splitting)
+  // Feed text incrementally - split into sentences for fast first-speech
   _feedVoiceText(text) {
     if (!this._isVoiceAgentSession()) return;
-    var clean = text.trim();
-    if (clean.length > 3 && clean.length < 2000) {
-      this._voiceTtsQueue.push(clean);
-      this._processVoiceQueue();
+    this._voiceSentenceBuffer += text;
+
+    // Split on sentence boundaries (. ! ?) followed by space or end
+    var parts = this._voiceSentenceBuffer.split(/(?<=[.!?])\s+/);
+    // Keep last part as buffer (may be incomplete)
+    this._voiceSentenceBuffer = parts.pop() || '';
+
+    for (var i = 0; i < parts.length; i++) {
+      var sentence = parts[i].trim();
+      if (sentence.length > 3) {
+        this._voiceTtsQueue.push(sentence);
+      }
     }
+    // Start playing immediately - don't wait for full response
+    this._processVoiceQueue();
   },
 
-  // Flush remaining buffer (no-op now, kept for compatibility)
+  // Flush remaining buffer when turn completes
   _flushVoiceBuffer() {
-    // Text is sent directly in _feedVoiceText, nothing to flush
+    var remaining = this._voiceSentenceBuffer.trim();
+    this._voiceSentenceBuffer = '';
+    if (remaining.length > 3 && this._isVoiceAgentSession()) {
+      this._voiceTtsQueue.push(remaining);
+      this._processVoiceQueue();
+    }
   },
 
   // Process TTS queue sequentially
