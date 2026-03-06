@@ -288,6 +288,9 @@ const ChatViewManager = {
       case 'response_text':
         this._setState('responding');
         this._addMessage('assistant', action.text);
+        if (action.text && action.text.length > 5 && action.text.length < 2000) {
+          this._speakWithAvatar(action.text);
+        }
         break;
 
       case 'tool_execution':
