@@ -1156,20 +1156,60 @@ const ChatViewManager = {
     }
   },
 
-  _speakWithAvatar(text) {
-    if (!this._voiceAvatarReady || !this._voiceHead) return;
-    if (this._voiceSpeaking) return; // don't queue up
+  // Feed incoming text, split on sentence boundaries and queue for TTS
+  _feedVoiceText(text) {
+    if (!this._isVoiceAgentSession()) return;
+    this._voiceSentenceBuffer += text;
+
+    // Split on sentence-ending punctuation followed by space or end
+    var parts = this._voiceSentenceBuffer.split(/(?<=[.!?])\s+/);
+    // Keep last part as buffer (may be incomplete sentence)
+    this._voiceSentenceBuffer = parts.pop() || '';
+
+    for (var i = 0; i < parts.length; i++) {
+      var sentence = parts[i].trim();
+      if (sentence.length > 3) {
+        this._voiceTtsQueue.push(sentence);
+      }
+    }
+    this._processVoiceQueue();
+  },
+
+  // Flush remaining buffer (called when turn completes)
+  _flushVoiceBuffer() {
+    var remaining = this._voiceSentenceBuffer.trim();
+    this._voiceSentenceBuffer = '';
+    if (remaining.length > 3 && this._isVoiceAgentSession()) {
+      this._voiceTtsQueue.push(remaining);
+      this._processVoiceQueue();
+    }
+  },
+
+  // Process TTS queue sequentially
+  _processVoiceQueue() {
+    if (this._voiceTtsPlaying) return;
+    if (this._voiceTtsQueue.length === 0) return;
+    if (!this._voiceAvatarReady || !this._voiceHead) {
+      this._voiceTtsQueue = [];
+      return;
+    }
+
     var self = this;
+    var sentence = this._voiceTtsQueue.shift();
     var voiceSelect = document.getElementById('chat-voice-select');
     var voice = voiceSelect ? voiceSelect.value : 'pt-BR-AntonioNeural';
 
-    this._voiceSpeaking = true;
+    this._voiceTtsPlaying = true;
     fetch(_url('api/voice/tts'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API._token },
-      body: JSON.stringify({ text: text.substring(0, 500), voice: voice, lipsync: true })
+      body: JSON.stringify({ text: sentence.substring(0, 500), voice: voice, lipsync: true })
     }).then(function(resp) { return resp.json(); }).then(function(data) {
-      if (data.error || !data.audio) { self._voiceSpeaking = false; return; }
+      if (data.error || !data.audio) {
+        self._voiceTtsPlaying = false;
+        self._processVoiceQueue();
+        return;
+      }
 
       var audioBytes = Uint8Array.from(atob(data.audio), function(c) { return c.charCodeAt(0); });
       return self._voiceHead.audioCtx.decodeAudioData(audioBytes.buffer.slice(0)).then(function(audioBuffer) {
@@ -1181,13 +1221,17 @@ const ChatViewManager = {
           markers: [function() { self._voiceHead.lookAtCamera(100); }],
           mtimes: [0]
         });
-        // Reset speaking flag after estimated duration
-        var duration = audioBuffer.duration * 1000 + 500;
-        setTimeout(function() { self._voiceSpeaking = false; }, duration);
+        // Wait for audio to finish, then process next in queue
+        var duration = audioBuffer.duration * 1000 + 300;
+        setTimeout(function() {
+          self._voiceTtsPlaying = false;
+          self._processVoiceQueue();
+        }, duration);
       });
     }).catch(function(err) {
       console.error('TTS error:', err);
-      self._voiceSpeaking = false;
+      self._voiceTtsPlaying = false;
+      self._processVoiceQueue();
     });
   },
 
