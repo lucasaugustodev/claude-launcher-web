@@ -79,6 +79,9 @@ const ChatViewManager = {
     }
 
     document.getElementById('terminal-overlay').style.display = 'flex';
+
+    // Init avatar after UI is ready
+    this._initVoiceAvatar();
   },
 
   _buildUI() {
@@ -944,6 +947,217 @@ const ChatViewManager = {
       }
       list.scrollTop = list.scrollHeight;
     }
+  },
+
+  // ─── Voice + Avatar Methods ───
+
+  _initVoiceAvatar() {
+    var self = this;
+    if (this._voiceHead) return; // already initialized
+
+    import('https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@1.7/modules/talkinghead.mjs').then(function(mod) {
+      var TalkingHead = mod.TalkingHead;
+      var avatarContainer = document.getElementById('chat-voice-avatar-panel');
+      var loading = document.getElementById('chat-voice-avatar-loading');
+      if (!avatarContainer) return;
+
+      self._voiceHead = new TalkingHead(avatarContainer, {
+        lipsyncModules: ['en', 'fi'],
+        cameraView: 'head',
+        cameraRotateEnable: false,
+        cameraPanEnable: false,
+        cameraZoomEnable: false,
+        avatarIdleEyeContact: 1,
+        avatarIdleHeadMove: 0,
+        modelFPS: 30
+      });
+
+      self._voiceHead.showAvatar({
+        url: API.base + '/api/voice/avatars/avatarsdk.glb',
+        body: 'M',
+        avatarMood: 'neutral',
+        lipsyncLang: 'en',
+        retarget: {
+          Neck: { z: -0.01, rx: -0.7 }, Neck1: { z: -0.01, rx: -0.7 }, Neck2: { z: -0.01, rx: -0.7 },
+          LeftShoulder: { rz: -0.3 }, RightShoulder: { rz: 0.3 },
+          scaleToEyesLevel: 1.0, origin: { y: -0.1 }
+        },
+        baseline: { headRotateX: -0.4, eyeBlinkLeft: 0.05, eyeBlinkRight: 0.05 }
+      }, function(ev) {
+        if (ev.lengthComputable && loading) {
+          loading.textContent = Math.round(ev.loaded / ev.total * 100) + '%';
+        }
+      }).then(function() {
+        if (loading) loading.style.display = 'none';
+        self._voiceAvatarReady = true;
+        self._voiceHead.setView('head', { cameraDistance: 0.6, cameraX: 0, cameraY: 0, cameraRotateX: 0, cameraRotateY: 0 });
+        self._voiceHead.lookAtCamera(100);
+        self._voiceLookInterval = setInterval(function() {
+          if (self._voiceAvatarReady && self._voiceHead) self._voiceHead.lookAtCamera(500);
+        }, 1000);
+      }).catch(function(err) {
+        console.error('Avatar load error:', err);
+        if (loading) loading.textContent = 'Erro: ' + err.message;
+      });
+    }).catch(function(err) {
+      console.error('TalkingHead import error:', err);
+    });
+  },
+
+  _destroyVoiceAvatar() {
+    if (this._voiceLookInterval) {
+      clearInterval(this._voiceLookInterval);
+      this._voiceLookInterval = null;
+    }
+    if (this._voiceHead) {
+      try { this._voiceHead.close(); } catch(e) {}
+      this._voiceHead = null;
+    }
+    this._voiceAvatarReady = false;
+  },
+
+  _toggleVoiceRecording() {
+    if (this._voiceRecording) {
+      this._stopVoiceRecording();
+    } else {
+      this._startVoiceRecording();
+    }
+  },
+
+  _startVoiceRecording() {
+    var self = this;
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
+      self._voiceMediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+      self._voiceAudioChunks = [];
+      self._voiceMediaRecorder.ondataavailable = function(e) { if (e.data.size > 0) self._voiceAudioChunks.push(e.data); };
+      self._voiceMediaRecorder.onstop = function() {
+        stream.getTracks().forEach(function(t) { t.stop(); });
+        self._transcribeAndSend();
+      };
+      self._voiceMediaRecorder.start();
+      self._voiceRecording = true;
+
+      var micBtn = document.getElementById('chat-mic-btn');
+      if (micBtn) micBtn.classList.add('recording');
+
+      var startTime = Date.now();
+      self._voiceTimerInterval = setInterval(function() {
+        var s = Math.floor((Date.now() - startTime) / 1000);
+        if (micBtn) micBtn.title = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+      }, 200);
+    }).catch(function(err) {
+      console.error('Mic error:', err);
+    });
+  },
+
+  _stopVoiceRecording() {
+    if (this._voiceMediaRecorder && this._voiceMediaRecorder.state !== 'inactive') {
+      this._voiceMediaRecorder.stop();
+    }
+    this._voiceRecording = false;
+    var micBtn = document.getElementById('chat-mic-btn');
+    if (micBtn) {
+      micBtn.classList.remove('recording');
+      micBtn.title = 'Clique para falar';
+    }
+    clearInterval(this._voiceTimerInterval);
+  },
+
+  _transcribeAndSend() {
+    var self = this;
+    var blob = new Blob(this._voiceAudioChunks, { type: 'audio/webm' });
+    var fd = new FormData();
+    fd.append('audio', blob, 'recording.webm');
+
+    this._addMessage('system', 'Transcrevendo...');
+
+    fetch(API.base + '/api/voice/transcribe', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + API.token },
+      body: fd
+    }).then(function(resp) { return resp.json(); }).then(function(data) {
+      // Remove "Transcrevendo..." message
+      self._removeLastSystemMessage('Transcrevendo...');
+
+      if (data.error || !data.text || !data.text.trim()) {
+        self._addMessage('system', data.error || 'Nada detectado');
+        return;
+      }
+
+      var text = data.text.trim();
+      self._addMessage('user', text);
+
+      // Send to terminal/session
+      if (self._streamJson) {
+        API.sendStreamJsonInput(self._currentSessionId, text);
+      } else {
+        var sid = self._currentSessionId;
+        var chars = text.split('');
+        chars.forEach(function(ch, i) {
+          setTimeout(function() { API.sendInput(sid, ch); }, i * 10);
+        });
+        setTimeout(function() { API.sendInput(sid, '\r'); }, chars.length * 10 + 20);
+      }
+
+      self._setState('thinking');
+      self._updateThinkingIndicator('Processando');
+    }).catch(function(err) {
+      self._removeLastSystemMessage('Transcrevendo...');
+      self._addMessage('system', 'Erro transcrição: ' + err.message);
+    });
+  },
+
+  _removeLastSystemMessage(text) {
+    for (var i = this._messages.length - 1; i >= 0; i--) {
+      if (this._messages[i].type === 'system' && this._messages[i].content === text) {
+        this._messages.splice(i, 1);
+        break;
+      }
+    }
+    var list = document.getElementById('chat-messages');
+    if (!list) return;
+    var msgs = list.querySelectorAll('.chat-msg-system');
+    for (var j = msgs.length - 1; j >= 0; j--) {
+      if (msgs[j].textContent.trim() === text) {
+        msgs[j].remove();
+        break;
+      }
+    }
+  },
+
+  _speakWithAvatar(text) {
+    if (!this._voiceAvatarReady || !this._voiceHead) return;
+    if (this._voiceSpeaking) return; // don't queue up
+    var self = this;
+    var voiceSelect = document.getElementById('chat-voice-select');
+    var voice = voiceSelect ? voiceSelect.value : 'pt-BR-AntonioNeural';
+
+    this._voiceSpeaking = true;
+    fetch(API.base + '/api/voice/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API.token },
+      body: JSON.stringify({ text: text.substring(0, 500), voice: voice, lipsync: true })
+    }).then(function(resp) { return resp.json(); }).then(function(data) {
+      if (data.error || !data.audio) { self._voiceSpeaking = false; return; }
+
+      var audioBytes = Uint8Array.from(atob(data.audio), function(c) { return c.charCodeAt(0); });
+      return self._voiceHead.audioCtx.decodeAudioData(audioBytes.buffer.slice(0)).then(function(audioBuffer) {
+        self._voiceHead.speakAudio({
+          audio: audioBuffer,
+          words: data.words || [],
+          wtimes: data.wtimes || [],
+          wdurations: data.wdurations || [],
+          markers: [function() { self._voiceHead.lookAtCamera(100); }],
+          mtimes: [0]
+        });
+        // Reset speaking flag after estimated duration
+        var duration = audioBuffer.duration * 1000 + 500;
+        setTimeout(function() { self._voiceSpeaking = false; }, duration);
+      });
+    }).catch(function(err) {
+      console.error('TTS error:', err);
+      self._voiceSpeaking = false;
+    });
   },
 
   close() {
