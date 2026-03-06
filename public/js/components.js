@@ -2994,7 +2994,7 @@ async function renderVoiceManagerPage(container) {
 
   // Load agents into select
   try {
-    var agents = await API.getClaudeAgents();
+    var resp = await API.getClaudeAgents(); var agents = resp.agents || resp;
     var select = document.getElementById('vm-agent');
     var manager = agents.find(function(a) { return a.name === 'manager-agent'; });
     if (manager) {

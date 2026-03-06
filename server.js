@@ -2465,7 +2465,7 @@ geminiCli.getStatus().then(s => {
 // --- Voice Manager proxy (faster-whisper-web on port 5555) ---
 const VOICE_SERVER = 'http://127.0.0.1:5555';
 
-app.post('/api/voice/transcribe', authMiddleware, (req, res) => {
+app.post('/api/voice/transcribe', checkToken, (req, res) => {
   const http = require('http');
   const proxyReq = http.request({ hostname: '127.0.0.1', port: 5555, path: '/transcribe', method: 'POST', headers: { ...req.headers, host: '127.0.0.1:5555' } }, (proxyRes) => {
     res.status(proxyRes.statusCode);
@@ -2476,20 +2476,17 @@ app.post('/api/voice/transcribe', authMiddleware, (req, res) => {
   req.pipe(proxyReq);
 });
 
-app.post('/api/voice/tts', authMiddleware, (req, res) => {
+app.post('/api/voice/tts', checkToken, (req, res) => {
   const http = require('http');
-  let body = '';
-  req.on('data', chunk => body += chunk);
-  req.on('end', () => {
-    const proxyReq = http.request({ hostname: '127.0.0.1', port: 5555, path: '/tts', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, (proxyRes) => {
-      res.status(proxyRes.statusCode);
-      Object.entries(proxyRes.headers).forEach(([k, v]) => res.setHeader(k, v));
-      proxyRes.pipe(res);
-    });
-    proxyReq.on('error', () => res.status(502).json({ error: 'Voice server unavailable' }));
-    proxyReq.write(body);
-    proxyReq.end();
+  const body = JSON.stringify(req.body);
+  const proxyReq = http.request({ hostname: '127.0.0.1', port: 5555, path: '/tts', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, (proxyRes) => {
+    res.status(proxyRes.statusCode);
+    Object.entries(proxyRes.headers).forEach(([k, v]) => res.setHeader(k, v));
+    proxyRes.pipe(res);
   });
+  proxyReq.on('error', () => res.status(502).json({ error: 'Voice server unavailable' }));
+  proxyReq.write(body);
+  proxyReq.end();
 });
 
 app.get('/api/voice/avatars/:filename', (req, res) => {
