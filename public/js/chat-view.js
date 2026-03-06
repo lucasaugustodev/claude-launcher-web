@@ -285,6 +285,8 @@ const ChatViewManager = {
         // Never show result.result text - it always duplicates the last assistant event text.
         this._removeThinkingIndicator();
         this._setState('input_wait');
+        // Flush any remaining buffered text to TTS
+        this._flushVoiceBuffer();
         break;
     }
   },
