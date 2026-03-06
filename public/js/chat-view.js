@@ -230,6 +230,10 @@ const ChatViewManager = {
           if (block.type === 'text' && block.text) {
             this._setState('responding');
             this._addMessage('assistant', block.text);
+            // Speak assistant text via avatar
+            if (block.text.length > 5 && block.text.length < 2000) {
+              this._speakWithAvatar(block.text);
+            }
           } else if (block.type === 'tool_use') {
             if (block.name === 'AskUserQuestion' && block.input && block.input.questions) {
               // Deduplicate: skip if we already have an active (unsent) ask
