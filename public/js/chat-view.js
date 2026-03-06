@@ -29,6 +29,11 @@ const ChatViewManager = {
   _voiceTtsQueue: [],    // queue of text chunks to speak
   _voiceTtsPlaying: false,
   _voiceSentenceBuffer: '', // accumulates text until sentence boundary
+  _continuousMode: false,
+  _continuousStream: null,
+  _continuousAnalyser: null,
+  _continuousSilenceTimer: null,
+  _continuousHasSound: false,
 
   open(sessionId, { streamJson } = {}) {
     this._currentSessionId = sessionId;
