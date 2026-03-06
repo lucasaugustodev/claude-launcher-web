@@ -980,7 +980,7 @@ const ChatViewManager = {
       });
 
       self._voiceHead.showAvatar({
-        url: API.base + '/api/voice/avatars/avatarsdk.glb',
+        url: _url('api/voice/avatars/avatarsdk.glb'),
         body: 'M',
         avatarMood: 'neutral',
         lipsyncLang: 'en',
