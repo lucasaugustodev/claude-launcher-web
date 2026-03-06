@@ -2503,9 +2503,10 @@ function showLaunchClaudeAgentModal(agent) {
     overlay.remove();
 
     try {
-      const session = await API.launchClaudeAgent(agent.name, cwd, mode, mem, { streamJson: isMobileView() });
+      const useStreamJson = true; // always use stream-json for clean chat UI
+      const session = await API.launchClaudeAgent(agent.name, cwd, mode, mem, { streamJson: useStreamJson });
       showToast(`Agente "${agent.name}" lancado!`);
-      getViewManager().open(session.id, { streamJson: isMobileView() });
+      getViewManager().open(session.id, { streamJson: useStreamJson });
       document.getElementById('terminal-title').textContent =
         `Agent: ${agent.name} \u2014 ${session.id.slice(0, 8)}`;
       updateActiveCount();
