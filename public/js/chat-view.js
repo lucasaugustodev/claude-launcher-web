@@ -1199,9 +1199,19 @@ const ChatViewManager = {
       this._fallbackFit = null;
     }
 
-    // Remove toggle button
+    // Destroy voice avatar
+    this._destroyVoiceAvatar();
+    this._voiceRecording = false;
+    this._voiceSpeaking = false;
+    clearInterval(this._voiceTimerInterval);
+
+    // Remove header buttons
     var toggleBtn = document.getElementById('chat-toggle-btn');
     if (toggleBtn) toggleBtn.remove();
+    var avatarToggle = document.getElementById('chat-avatar-toggle');
+    if (avatarToggle) avatarToggle.remove();
+    var voiceSelect = document.getElementById('chat-voice-select');
+    if (voiceSelect) voiceSelect.remove();
 
     // Reset container
     var container = document.getElementById('terminal-container');
