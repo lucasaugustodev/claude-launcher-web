@@ -7,6 +7,7 @@
   min-height: 0; /* crucial for flex child overflow */
   overflow: hidden;
   background: var(--bg-primary);
+  position: relative; /* for avatar panel positioning */
 }
 
 /* Force terminal-container to constrain content when in chat mode */
