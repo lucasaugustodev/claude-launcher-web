@@ -1351,20 +1351,20 @@ const ChatViewManager = {
     });
   },
 
-  // Feed text incrementally - split into sentences for fast first-speech
+  // Feed text to TTS - only split on paragraphs, keep sentences together
   _feedVoiceText(text) {
     if (!this._isVoiceAgentSession()) return;
     this._voiceSentenceBuffer += text;
 
-    // Split on sentence boundaries (. ! ?) or newlines
-    var parts = this._voiceSentenceBuffer.split(/(?<=[.!?])\s+|\n+/);
+    // Only split on double newlines (paragraphs), not on every sentence
+    var parts = this._voiceSentenceBuffer.split(/\n\s*\n/);
     // Keep last part as buffer (may be incomplete)
     this._voiceSentenceBuffer = parts.pop() || '';
 
     for (var i = 0; i < parts.length; i++) {
-      var sentence = parts[i].trim();
-      if (sentence.length > 3) {
-        this._voiceTtsQueue.push(sentence);
+      var chunk = parts[i].trim();
+      if (chunk.length > 3) {
+        this._voiceTtsQueue.push(chunk);
       }
     }
     // Start playing immediately - don't wait for full response
