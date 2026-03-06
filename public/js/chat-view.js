@@ -1351,14 +1351,24 @@ const ChatViewManager = {
     });
   },
 
-  // Feed text to TTS immediately as a single block (no splitting)
+  // Feed text incrementally - split into sentences for fast first-speech
   _feedVoiceText(text) {
     if (!this._isVoiceAgentSession()) return;
-    var clean = text.replace(/\n+/g, ' ').trim();
-    if (clean.length > 3) {
-      this._voiceTtsQueue.push(clean);
-      this._processVoiceQueue();
+    this._voiceSentenceBuffer += text;
+
+    // Split on sentence boundaries (. ! ?) or newlines
+    var parts = this._voiceSentenceBuffer.split(/(?<=[.!?])\s+|\n+/);
+    // Keep last part as buffer (may be incomplete)
+    this._voiceSentenceBuffer = parts.pop() || '';
+
+    for (var i = 0; i < parts.length; i++) {
+      var sentence = parts[i].trim();
+      if (sentence.length > 3) {
+        this._voiceTtsQueue.push(sentence);
+      }
     }
+    // Start playing immediately - don't wait for full response
+    this._processVoiceQueue();
   },
 
   // Flush remaining buffer when turn completes
