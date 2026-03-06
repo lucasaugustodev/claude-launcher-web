@@ -1351,29 +1351,14 @@ const ChatViewManager = {
     });
   },
 
-  // Feed text to TTS - send as single block for short texts, split paragraphs for long
+  // Feed text to TTS immediately as a single block (no splitting)
   _feedVoiceText(text) {
     if (!this._isVoiceAgentSession()) return;
-    this._voiceSentenceBuffer += text;
-
-    // For short texts (<300 chars), don't split - send as one TTS call
-    // Only split long texts on double newlines (paragraphs)
-    var buf = this._voiceSentenceBuffer;
-    if (buf.length < 300) {
-      // Wait for flush - text might still be arriving
-      return;
+    var clean = text.replace(/\n+/g, ' ').trim();
+    if (clean.length > 3) {
+      this._voiceTtsQueue.push(clean);
+      this._processVoiceQueue();
     }
-
-    var parts = buf.split(/\n\s*\n/);
-    this._voiceSentenceBuffer = parts.pop() || '';
-
-    for (var i = 0; i < parts.length; i++) {
-      var chunk = parts[i].trim();
-      if (chunk.length > 3) {
-        this._voiceTtsQueue.push(chunk);
-      }
-    }
-    this._processVoiceQueue();
   },
 
   // Flush remaining buffer when turn completes
