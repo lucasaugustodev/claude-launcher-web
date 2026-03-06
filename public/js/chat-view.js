@@ -1186,7 +1186,7 @@ const ChatViewManager = {
     }
   },
 
-  // Fetch TTS for a sentence, return promise with decoded audio data
+  // Fetch TTS for a sentence - no lipsync (skips Whisper, much faster)
   _fetchTts(sentence) {
     var self = this;
     var voiceSelect = document.getElementById('chat-voice-select');
@@ -1195,12 +1195,23 @@ const ChatViewManager = {
     return fetch(_url('api/voice/tts'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API._token },
-      body: JSON.stringify({ text: sentence.substring(0, 500), voice: voice, lipsync: true })
-    }).then(function(resp) { return resp.json(); }).then(function(data) {
-      if (data.error || !data.audio) return null;
-      var audioBytes = Uint8Array.from(atob(data.audio), function(c) { return c.charCodeAt(0); });
-      return self._voiceHead.audioCtx.decodeAudioData(audioBytes.buffer.slice(0)).then(function(audioBuffer) {
-        return { audioBuffer: audioBuffer, words: data.words || [], wtimes: data.wtimes || [], wdurations: data.wdurations || [] };
+      body: JSON.stringify({ text: sentence.substring(0, 500), voice: voice, lipsync: false })
+    }).then(function(resp) {
+      if (!resp.ok) return null;
+      return resp.arrayBuffer();
+    }).then(function(arrayBuf) {
+      if (!arrayBuf || !self._voiceHead) return null;
+      return self._voiceHead.audioCtx.decodeAudioData(arrayBuf).then(function(audioBuffer) {
+        // Generate simple word timing estimates from text for basic lip-sync
+        var words = sentence.split(/\s+/);
+        var avgDuration = (audioBuffer.duration * 1000) / Math.max(words.length, 1);
+        var wtimes = [];
+        var wdurations = [];
+        for (var i = 0; i < words.length; i++) {
+          wtimes.push(Math.round(i * avgDuration));
+          wdurations.push(Math.round(avgDuration * 0.8));
+        }
+        return { audioBuffer: audioBuffer, words: words, wtimes: wtimes, wdurations: wdurations };
       });
     }).catch(function(err) {
       console.error('TTS fetch error:', err);
