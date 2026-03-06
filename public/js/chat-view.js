@@ -1078,7 +1078,7 @@ const ChatViewManager = {
 
     this._addMessage('system', 'Transcrevendo...');
 
-    fetch(API.base + '/api/voice/transcribe', {
+    fetch(_url('api/voice/transcribe'), {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + API.token },
       body: fd
