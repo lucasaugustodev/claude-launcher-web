@@ -2472,16 +2472,16 @@ app.post('/api/voice/tts', checkToken, async (req, res) => {
   try {
     const tts = new MsEdgeTTS();
     await tts.setMetadata(voice || 'pt-BR-AntonioNeural', OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-    const readable = tts.toStream(text.trim());
+    const { audioStream } = tts.toStream(text.trim());
 
     const chunks = [];
-    readable.on('data', (chunk) => chunks.push(chunk));
-    readable.on('end', () => {
+    audioStream.on('data', (chunk) => chunks.push(chunk));
+    audioStream.on('end', () => {
       const buffer = Buffer.concat(chunks);
       res.set('Content-Type', 'audio/mpeg');
       res.send(buffer);
     });
-    readable.on('error', (err) => {
+    audioStream.on('error', (err) => {
       res.status(500).json({ error: err.message });
     });
   } catch (err) {
