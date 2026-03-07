@@ -289,7 +289,7 @@ function AgentChat({ onProcessesUpdated }) {
     if (!text) return;
     setInput('');
 
-    if (!sessionId) {
+    if (!sessionIdRef.current) {
       // First message - launch the agent
       launchAgent(text);
       setMessages(prev => [...prev, { role: 'user', text }]);
@@ -298,21 +298,21 @@ function AgentChat({ onProcessesUpdated }) {
 
     // Send to existing session
     setMessages(prev => [...prev, { role: 'user', text }]);
-    API.sendStreamJsonInput(sessionId, text);
+    API.sendStreamJsonInput(sessionIdRef.current, text);
     setStatus('thinking');
-  }, [input, sessionId, launchAgent]);
+  }, [input, launchAgent]);
 
   const stopAgent = useCallback(async () => {
-    if (!sessionId) return;
+    if (!sessionIdRef.current) return;
     try {
       const token = localStorage.getItem('token') || '';
-      await fetch('api/sessions/' + sessionId + '/stop', {
+      await fetch('api/sessions/' + sessionIdRef.current + '/stop', {
         method: 'POST',
         headers: { 'Authorization': 'Bearer ' + token },
       });
     } catch {}
     setStatus('ended');
-  }, [sessionId]);
+  }, []);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
