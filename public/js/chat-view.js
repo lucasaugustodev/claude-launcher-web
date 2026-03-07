@@ -1384,6 +1384,7 @@ const ChatViewManager = {
     this._voiceSpeaking = false;
     this._voiceTtsQueue = [];
     this._voiceTtsPlaying = false;
+    this._voiceNextTtsPromise = null;
     this._voiceSentenceBuffer = '';
     clearInterval(this._voiceTimerInterval);
 
