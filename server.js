@@ -2463,7 +2463,7 @@ geminiCli.getStatus().then(s => {
 
 
 // --- Voice TTS (Edge TTS via msedge-tts, no GPU/Python needed) ---
-const { MsEdgeTTS } = require('msedge-tts');
+const { MsEdgeTTS, OUTPUT_FORMAT } = require('msedge-tts');
 
 app.post('/api/voice/tts', checkToken, async (req, res) => {
   const { text, voice } = req.body || {};
