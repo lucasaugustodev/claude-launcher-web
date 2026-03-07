@@ -218,7 +218,7 @@ function AgentChat({ onProcessesUpdated }) {
         throw new Error(err.error || 'Falha ao iniciar agente');
       }
       const session = await resp.json();
-      setSessionId(session.id);
+      sessionIdRef.current = session.id;
 
       // Attach to session WebSocket
       API.attachSession(session.id);
