@@ -356,8 +356,8 @@ function AgentChat({ onProcessesUpdated }) {
           className: 'btn btn-primary btn-sm',
           onClick: sendMessage,
           disabled: !input.trim() || status === 'connecting' || status === 'ended',
-        }, sessionId ? 'Enviar' : 'Iniciar'),
-        sessionId && status !== 'ended' && h('button', {
+        }, status !== 'idle' ? 'Enviar' : 'Iniciar'),
+        status !== 'idle' && status !== 'ended' && h('button', {
           className: 'btn btn-danger btn-sm',
           onClick: stopAgent,
           style: { fontSize: 11 },
