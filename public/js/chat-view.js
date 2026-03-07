@@ -1287,20 +1287,29 @@ const ChatViewManager = {
     });
   },
 
-  // Process TTS queue - pre-fetches next sentence while current plays
+  // Process TTS queue - plays from pre-fetched promise or fetches fresh
   _processVoiceQueue() {
     if (this._voiceTtsPlaying) return;
-    if (this._voiceTtsQueue.length === 0) return;
     if (!this._voiceAvatarReady || !this._voiceHead) {
       this._voiceTtsQueue = [];
+      this._voiceNextTtsPromise = null;
       return;
     }
 
+    // Use pre-fetched promise if available, otherwise fetch from queue
+    var ttsPromise = this._voiceNextTtsPromise;
+    this._voiceNextTtsPromise = null;
+
+    if (!ttsPromise) {
+      if (this._voiceTtsQueue.length === 0) return;
+      var sentence = this._voiceTtsQueue.shift();
+      ttsPromise = this._fetchTts(sentence);
+    }
+
     var self = this;
-    var sentence = this._voiceTtsQueue.shift();
     this._voiceTtsPlaying = true;
 
-    this._fetchTts(sentence).then(function(ttsData) {
+    ttsPromise.then(function(ttsData) {
       if (!ttsData || !self._voiceHead) {
         self._voiceTtsPlaying = false;
         self._processVoiceQueue();
@@ -1320,40 +1329,16 @@ const ChatViewManager = {
       var duration = ttsData.audioBuffer.duration * 1000;
 
       // Pre-fetch next sentence while current plays
-      var nextPromise = null;
       if (self._voiceTtsQueue.length > 0) {
         var nextSentence = self._voiceTtsQueue.shift();
-        nextPromise = self._fetchTts(nextSentence);
+        self._voiceNextTtsPromise = self._fetchTts(nextSentence);
       }
 
-      // When current finishes, play pre-fetched or continue queue
+      // When current finishes, play next
       setTimeout(function() {
-        if (nextPromise) {
-          nextPromise.then(function(nextData) {
-            if (nextData && self._voiceHead) {
-              self._voiceHead.speakAudio({
-                audio: nextData.audioBuffer,
-                words: nextData.words,
-                wtimes: nextData.wtimes,
-                wdurations: nextData.wdurations,
-                markers: [function() { self._voiceHead.lookAtCamera(100); }],
-                mtimes: [0]
-              });
-              var nextDuration = nextData.audioBuffer.duration * 1000;
-              setTimeout(function() {
-                self._voiceTtsPlaying = false;
-                self._processVoiceQueue();
-              }, nextDuration + 200);
-            } else {
-              self._voiceTtsPlaying = false;
-              self._processVoiceQueue();
-            }
-          });
-        } else {
-          self._voiceTtsPlaying = false;
-          self._processVoiceQueue();
-        }
-      }, duration + 200);
+        self._voiceTtsPlaying = false;
+        self._processVoiceQueue();
+      }, duration + 100);
     });
   },
 
