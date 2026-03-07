@@ -1071,85 +1071,71 @@ const ChatViewManager = {
 
   _startVoiceRecording() {
     var self = this;
-    navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
-      self._voiceMediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
-      self._voiceAudioChunks = [];
-      self._voiceMediaRecorder.ondataavailable = function(e) { if (e.data.size > 0) self._voiceAudioChunks.push(e.data); };
-      self._voiceMediaRecorder.onstop = function() {
-        stream.getTracks().forEach(function(t) { t.stop(); });
-        self._transcribeAndSend();
-      };
-      self._voiceMediaRecorder.start();
-      self._voiceRecording = true;
+    var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      this._addMessage('system', 'Web Speech API nao suportada neste browser');
+      return;
+    }
 
-      var micBtn = document.getElementById('chat-mic-btn');
-      if (micBtn) micBtn.classList.add('recording');
+    var recognition = new SpeechRecognition();
+    recognition.lang = 'pt-BR';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    this._voiceRecognition = recognition;
+    this._voiceRecording = true;
 
-      var startTime = Date.now();
-      self._voiceTimerInterval = setInterval(function() {
-        var s = Math.floor((Date.now() - startTime) / 1000);
-        if (micBtn) micBtn.title = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
-      }, 200);
-    }).catch(function(err) {
-      console.error('Mic error:', err);
-    });
+    var micBtn = document.getElementById('chat-mic-btn');
+    if (micBtn) micBtn.classList.add('recording');
+
+    recognition.onresult = function(event) {
+      var text = event.results[0][0].transcript.trim();
+      if (text.length > 0) {
+        self._sendVoiceText(text);
+      }
+    };
+
+    recognition.onerror = function(event) {
+      if (event.error !== 'aborted') {
+        self._addMessage('system', 'Erro reconhecimento: ' + event.error);
+      }
+      self._voiceRecording = false;
+      if (micBtn) micBtn.classList.remove('recording');
+    };
+
+    recognition.onend = function() {
+      self._voiceRecording = false;
+      if (micBtn) micBtn.classList.remove('recording');
+    };
+
+    recognition.start();
   },
 
   _stopVoiceRecording() {
-    if (this._voiceMediaRecorder && this._voiceMediaRecorder.state !== 'inactive') {
-      this._voiceMediaRecorder.stop();
+    if (this._voiceRecognition) {
+      this._voiceRecognition.abort();
+      this._voiceRecognition = null;
     }
     this._voiceRecording = false;
     var micBtn = document.getElementById('chat-mic-btn');
-    if (micBtn) {
-      micBtn.classList.remove('recording');
-      micBtn.title = 'Clique para falar';
-    }
-    clearInterval(this._voiceTimerInterval);
+    if (micBtn) micBtn.classList.remove('recording');
   },
 
-  _transcribeAndSend() {
-    var self = this;
-    var blob = new Blob(this._voiceAudioChunks, { type: 'audio/webm' });
-    var fd = new FormData();
-    fd.append('audio', blob, 'recording.webm');
+  _sendVoiceText(text) {
+    this._addMessage('user', text);
 
-    this._addMessage('system', 'Transcrevendo...');
+    if (this._streamJson) {
+      API.sendStreamJsonInput(this._currentSessionId, text);
+    } else {
+      var sid = this._currentSessionId;
+      var chars = text.split('');
+      chars.forEach(function(ch, i) {
+        setTimeout(function() { API.sendInput(sid, ch); }, i * 10);
+      });
+      setTimeout(function() { API.sendInput(sid, '\r'); }, chars.length * 10 + 20);
+    }
 
-    fetch(_url('api/voice/transcribe'), {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + API._token },
-      body: fd
-    }).then(function(resp) { return resp.json(); }).then(function(data) {
-      // Remove "Transcrevendo..." message
-      self._removeLastSystemMessage('Transcrevendo...');
-
-      if (data.error || !data.text || !data.text.trim()) {
-        self._addMessage('system', data.error || 'Nada detectado');
-        return;
-      }
-
-      var text = data.text.trim();
-      self._addMessage('user', text);
-
-      // Send to terminal/session
-      if (self._streamJson) {
-        API.sendStreamJsonInput(self._currentSessionId, text);
-      } else {
-        var sid = self._currentSessionId;
-        var chars = text.split('');
-        chars.forEach(function(ch, i) {
-          setTimeout(function() { API.sendInput(sid, ch); }, i * 10);
-        });
-        setTimeout(function() { API.sendInput(sid, '\r'); }, chars.length * 10 + 20);
-      }
-
-      self._setState('thinking');
-      self._updateThinkingIndicator('Processando');
-    }).catch(function(err) {
-      self._removeLastSystemMessage('Transcrevendo...');
-      self._addMessage('system', 'Erro transcrição: ' + err.message);
-    });
+    this._setState('thinking');
+    this._updateThinkingIndicator('Processando');
   },
 
   _removeLastSystemMessage(text) {
