@@ -1521,6 +1521,7 @@ function ContentRouter({ page }) {
     case 'claude-agents': return html`<${LegacyPage} renderFn=${renderClaudeAgentsPage} />`;
     case 'agent-profiles': return html`<${LegacyPage} renderFn=${renderAgentProfilesPage} />`;
     case 'voice-manager': return html`<${LegacyPage} renderFn=${renderVoiceManagerPage} />`;
+    case 'planning': return html`<${LegacyPage} renderFn=${typeof renderPlanningPage === 'function' ? renderPlanningPage : (c) => { c.innerHTML = '<div class="empty-state"><p>Carregando modulo de planejamento...</p></div>'; }} />`;
     default: return null;
   }
 }
