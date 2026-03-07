@@ -1289,26 +1289,17 @@ const ChatViewManager = {
     });
   },
 
-  // Process TTS queue - plays from pre-fetched promise or fetches fresh
+  // Process TTS queue - queue holds promises (already fetching in parallel)
   _processVoiceQueue() {
     if (this._voiceTtsPlaying) return;
+    if (this._voiceTtsQueue.length === 0) return;
     if (!this._voiceAvatarReady || !this._voiceHead) {
       this._voiceTtsQueue = [];
-      this._voiceNextTtsPromise = null;
       return;
     }
 
-    // Use pre-fetched promise if available, otherwise fetch from queue
-    var ttsPromise = this._voiceNextTtsPromise;
-    this._voiceNextTtsPromise = null;
-
-    if (!ttsPromise) {
-      if (this._voiceTtsQueue.length === 0) return;
-      var sentence = this._voiceTtsQueue.shift();
-      ttsPromise = this._fetchTts(sentence);
-    }
-
     var self = this;
+    var ttsPromise = this._voiceTtsQueue.shift();
     this._voiceTtsPlaying = true;
 
     ttsPromise.then(function(ttsData) {
@@ -1330,13 +1321,7 @@ const ChatViewManager = {
 
       var duration = ttsData.audioBuffer.duration * 1000;
 
-      // Pre-fetch next sentence while current plays
-      if (self._voiceTtsQueue.length > 0) {
-        var nextSentence = self._voiceTtsQueue.shift();
-        self._voiceNextTtsPromise = self._fetchTts(nextSentence);
-      }
-
-      // When current finishes, play next
+      // When current finishes, play next from queue
       setTimeout(function() {
         self._voiceTtsPlaying = false;
         self._processVoiceQueue();
