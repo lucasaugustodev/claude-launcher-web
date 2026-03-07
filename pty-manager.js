@@ -935,12 +935,88 @@ function spawnInteractive(command, args = [], cwd) {
   return { id: sessionId, pid: handle.pid };
 }
 
+// ─── Planning Session ───
+// Launches a streamJson session with process discovery system prompt
+
+function launchPlanningSession(initialMessage) {
+  const sessionId = uuid();
+  const cwd = process.cwd();
+  ensureWorkspaceTrusted(cwd);
+  const env = buildClaudeEnv();
+
+  const systemPrompt = `Voce e um agente especialista em process discovery e mapeamento de processos empresariais.
+
+Seu objetivo e conduzir uma conversa com o usuario para extrair TODOS os processos internos da empresa.
+
+COMO CONDUZIR A CONVERSA:
+1. Comece pedindo uma visao geral da empresa e areas/departamentos
+2. Para cada area, pergunte sobre os processos principais
+3. Para cada processo, extraia: frequencia, responsavel, sistemas usados, nivel de esforco, impacto e pontos de friccao
+4. Pergunte sobre dependencias entre processos
+
+IMPORTANTE - SAIDA ESTRUTURADA:
+Apos cada resposta do usuario, SEMPRE inclua um bloco JSON com os processos descobertos ate o momento.
+O bloco DEVE estar entre as tags [PROCESSES] e [/PROCESSES].
+
+Formato:
+[PROCESSES]
+{
+  "nodes": [
+    {
+      "nome": "Nome do processo",
+      "frequencia": "diario|semanal|mensal|sob_demanda",
+      "responsavel": "Cargo ou pessoa",
+      "sistemas": ["Sistema1", "Sistema2"],
+      "esforco": "alto|medio|baixo",
+      "impacto": "alto|medio|baixo",
+      "friccao": "Descricao do ponto de dor"
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 1, "label": "dependencia" }
+  ]
+}
+[/PROCESSES]
+
+- Os indices em edges sao 0-based referentes ao array nodes
+- Inclua TODOS os processos descobertos ate agora (nao apenas os novos)
+- Se o usuario nao especificou algo, faca sua melhor estimativa
+- Continue perguntando ate cobrir todas as areas
+
+Comece a conversa agora perguntando sobre a empresa do usuario.`;
+
+  const fullPrompt = systemPrompt + (initialMessage ? '\n\nMensagem inicial do usuario: ' + initialMessage : '');
+
+  const handle = spawnStreamJsonSession(sessionId, cwd, env, [], fullPrompt);
+
+  const session = {
+    id: sessionId,
+    profileId: null,
+    profileName: 'Planning Agent',
+    mode: 'bypass',
+    workingDirectory: cwd,
+    startedAt: handle.startedAt,
+    endedAt: null,
+    durationSeconds: null,
+    exitCode: null,
+    status: 'running',
+    pid: handle.pid,
+    githubRepo: null,
+    syncStrategy: null,
+    watcherBranch: null,
+    streamJson: true,
+    planning: true,
+  };
+  storage.addSession(session);
+  return session;
+}
+
 function setBroadcast(fn) {
   _broadcast = fn;
 }
 
 module.exports = {
-  launchSession, launchDirect, launchAgent, resumeSession, stopSession, sendInput, resizePty,
+  launchSession, launchDirect, launchAgent, launchPlanningSession, resumeSession, stopSession, sendInput, resizePty,
   sendStreamJsonInput, isStreamJson,
   getActiveSessions, getSessionOutput,
   addListener, removeListener, stopAll, cleanupOrphaned,
