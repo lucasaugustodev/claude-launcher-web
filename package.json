@@ -9,6 +9,7 @@
   "dependencies": {
     "@anthropic-ai/claude-code": "^2.1.59",
     "express": "^4.21.0",
+    "msedge-tts": "^2.0.4",
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
     "node-pty": "^1.0.0",

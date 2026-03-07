@@ -2462,38 +2462,34 @@ geminiCli.getStatus().then(s => {
 }).catch(() => {});
 
 
-// --- Voice Manager proxy (faster-whisper-web on port 5555) ---
-const VOICE_SERVER = 'http://127.0.0.1:5555';
+// --- Voice TTS (Edge TTS via msedge-tts, no GPU/Python needed) ---
+const { MsEdgeTTS } = require('msedge-tts');
 
-app.post('/api/voice/transcribe', checkToken, (req, res) => {
-  const http = require('http');
-  const proxyReq = http.request({ hostname: '127.0.0.1', port: 5555, path: '/transcribe', method: 'POST', headers: { ...req.headers, host: '127.0.0.1:5555' } }, (proxyRes) => {
-    res.status(proxyRes.statusCode);
-    Object.entries(proxyRes.headers).forEach(([k, v]) => res.setHeader(k, v));
-    proxyRes.pipe(res);
-  });
-  proxyReq.on('error', () => res.status(502).json({ error: 'Voice server unavailable' }));
-  req.pipe(proxyReq);
+app.post('/api/voice/tts', checkToken, async (req, res) => {
+  const { text, voice } = req.body || {};
+  if (!text || !text.trim()) return res.status(400).json({ error: 'Texto vazio' });
+
+  try {
+    const tts = new MsEdgeTTS();
+    await tts.setMetadata(voice || 'pt-BR-AntonioNeural', MsEdgeTTS.OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+    const readable = tts.toStream(text.trim());
+
+    const chunks = [];
+    readable.on('data', (chunk) => chunks.push(chunk));
+    readable.on('end', () => {
+      const buffer = Buffer.concat(chunks);
+      res.set('Content-Type', 'audio/mpeg');
+      res.send(buffer);
+    });
+    readable.on('error', (err) => {
+      res.status(500).json({ error: err.message });
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.post('/api/voice/tts', checkToken, (req, res) => {
-  const http = require('http');
-  const body = JSON.stringify(req.body);
-  const proxyReq = http.request({ hostname: '127.0.0.1', port: 5555, path: '/tts', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, (proxyRes) => {
-    res.status(proxyRes.statusCode);
-    Object.entries(proxyRes.headers).forEach(([k, v]) => res.setHeader(k, v));
-    proxyRes.pipe(res);
-  });
-  proxyReq.on('error', () => res.status(502).json({ error: 'Voice server unavailable' }));
-  proxyReq.write(body);
-  proxyReq.end();
-});
-
-app.get('/api/voice/avatars/:filename', (req, res) => {
-  const path = require('path');
-  const avatarPath = path.resolve(__dirname, '..', 'faster-whisper-web', 'avatars', req.params.filename);
-  res.sendFile(avatarPath);
-});
+// Avatars served from public/avatars/ via express.static (no extra route needed)
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Claude Launcher Web running on http://0.0.0.0:${PORT}`);
