@@ -2491,6 +2491,113 @@ app.post('/api/voice/tts', checkToken, async (req, res) => {
 
 // Avatars served from public/avatars/ via express.static (no extra route needed)
 
+// --- Planning: Process Discovery via Claude ---
+app.post('/api/planning/analyze', checkToken, async (req, res) => {
+  const { messages } = req.body || {};
+  if (!messages || !Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: 'Nenhuma mensagem fornecida' });
+  }
+
+  const cliPath = path.join(__dirname, 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js');
+  if (!fs.existsSync(cliPath)) {
+    return res.status(500).json({ error: 'Claude CLI nao encontrado' });
+  }
+
+  const userText = messages.join('\n\n');
+  const prompt = `Voce e um especialista em process discovery e mapeamento de processos empresariais.
+
+O usuario descreveu os seguintes processos da empresa:
+
+---
+${userText}
+---
+
+Sua tarefa:
+1. Extraia TODOS os processos mencionados
+2. Para cada processo, identifique ou estime: frequencia, responsavel, sistemas envolvidos, esforco, impacto e pontos de friccao
+3. Identifique conexoes/dependencias entre processos
+
+Responda EXATAMENTE neste formato JSON (sem texto antes ou depois):
+{
+  "reply": "Sua mensagem de feedback para o usuario (em portugues), resumindo o que encontrou e sugerindo melhorias",
+  "nodes": [
+    {
+      "nome": "Nome do processo",
+      "frequencia": "diario|semanal|mensal|sob_demanda",
+      "responsavel": "Cargo ou pessoa",
+      "sistemas": ["Sistema1", "Sistema2"],
+      "esforco": "alto|medio|baixo",
+      "impacto": "alto|medio|baixo",
+      "friccao": "Descricao do que e manual/lento/problematico"
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 1, "label": "descricao da dependencia" }
+  ]
+}
+
+Os indices em edges referem-se a posicao do processo no array nodes (0-based).
+Use valores realistas. Se o usuario nao especificou algo, faca sua melhor estimativa baseada no contexto.`;
+
+  try {
+    const nodeExe = process.execPath;
+    const child = require('child_process').spawn(nodeExe, [cliPath, '--print', '-p', prompt], {
+      timeout: 120000,
+      env: { ...process.env },
+      cwd: __dirname,
+    });
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', d => stdout += d);
+    child.stderr.on('data', d => stderr += d);
+
+    child.on('close', (code) => {
+      if (code !== 0) {
+        console.error('[PLANNING] Claude exited with code', code, stderr);
+        return res.status(500).json({ error: 'Claude retornou erro', detail: stderr.slice(0, 200) });
+      }
+
+      // Try to parse JSON from output
+      let parsed;
+      try {
+        parsed = JSON.parse(stdout.trim());
+      } catch {
+        // Try to extract JSON from markdown code block
+        const match = stdout.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+        if (match) {
+          try { parsed = JSON.parse(match[1].trim()); } catch {}
+        }
+        // Try to find JSON object in output
+        if (!parsed) {
+          const jsonMatch = stdout.match(/\{[\s\S]*"nodes"[\s\S]*\}/);
+          if (jsonMatch) {
+            try { parsed = JSON.parse(jsonMatch[0]); } catch {}
+          }
+        }
+      }
+
+      if (!parsed || !parsed.nodes) {
+        console.error('[PLANNING] Failed to parse:', stdout.slice(0, 500));
+        return res.status(500).json({
+          error: 'Nao foi possivel extrair processos da resposta',
+          reply: stdout.trim().slice(0, 500),
+        });
+      }
+
+      res.json(parsed);
+    });
+
+    child.on('error', (err) => {
+      console.error('[PLANNING] Spawn error:', err);
+      res.status(500).json({ error: 'Erro ao executar Claude: ' + err.message });
+    });
+  } catch (err) {
+    console.error('[PLANNING] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Claude Launcher Web running on http://0.0.0.0:${PORT}`);
   console.log(`Setup required: ${!storage.hasUsers()}`);
