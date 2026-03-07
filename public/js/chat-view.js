@@ -1168,48 +1168,71 @@ const ChatViewManager = {
 
   _startContinuousMode() {
     var self = this;
+    var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      this._addMessage('system', 'Web Speech API nao suportada neste browser');
+      return;
+    }
+
     // Stop push-to-talk if active
     if (this._voiceRecording) this._stopVoiceRecording();
 
-    navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
-      self._continuousStream = stream;
-      self._continuousMode = true;
+    var recognition = new SpeechRecognition();
+    recognition.lang = 'pt-BR';
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
 
-      var btn = document.getElementById('chat-continuous-btn');
-      if (btn) {
-        btn.innerHTML = '&#128308;'; // red circle
-        btn.classList.add('recording');
-        btn.title = 'Modo contínuo ativo - clique para parar';
+    this._continuousRecognition = recognition;
+    this._continuousMode = true;
+
+    var btn = document.getElementById('chat-continuous-btn');
+    if (btn) {
+      btn.innerHTML = '&#128308;'; // red circle
+      btn.classList.add('recording');
+      btn.title = 'Modo contínuo ativo - clique para parar';
+    }
+
+    // Hide push-to-talk mic while continuous is active
+    var micBtn = document.getElementById('chat-mic-btn');
+    if (micBtn) micBtn.style.display = 'none';
+
+    recognition.onresult = function(event) {
+      // Get the latest result
+      var last = event.results[event.results.length - 1];
+      if (last.isFinal) {
+        var text = last[0].transcript.trim();
+        if (text.length > 0) {
+          self._sendVoiceText(text);
+        }
       }
+    };
 
-      // Hide push-to-talk mic while continuous is active
-      var micBtn = document.getElementById('chat-mic-btn');
-      if (micBtn) micBtn.style.display = 'none';
+    recognition.onerror = function(event) {
+      console.error('Continuous recognition error:', event.error);
+      // 'no-speech' is normal - just means silence, recognition auto-restarts
+      if (event.error !== 'no-speech' && event.error !== 'aborted') {
+        self._addMessage('system', 'Erro reconhecimento: ' + event.error);
+      }
+    };
 
-      self._continuousStartRecording(stream);
-    }).catch(function(err) {
-      console.error('Continuous mic error:', err);
-    });
+    recognition.onend = function() {
+      // Auto-restart if still in continuous mode
+      if (self._continuousMode) {
+        try { recognition.start(); } catch(e) { /* already started */ }
+      }
+    };
+
+    recognition.start();
   },
 
   _stopContinuousMode() {
     this._continuousMode = false;
-    clearTimeout(this._continuousSilenceTimer);
 
-    // Stop current recorder
-    if (this._voiceMediaRecorder && this._voiceMediaRecorder.state !== 'inactive') {
-      this._voiceMediaRecorder.stop();
+    if (this._continuousRecognition) {
+      this._continuousRecognition.abort();
+      this._continuousRecognition = null;
     }
-
-    // Stop stream
-    if (this._continuousStream) {
-      this._continuousStream.getTracks().forEach(function(t) { t.stop(); });
-      this._continuousStream = null;
-    }
-
-    // Clean up analyser
-    this._continuousAnalyser = null;
-    this._continuousHasSound = false;
 
     var btn = document.getElementById('chat-continuous-btn');
     if (btn) {
@@ -1221,120 +1244,6 @@ const ChatViewManager = {
     // Show push-to-talk mic again
     var micBtn = document.getElementById('chat-mic-btn');
     if (micBtn) micBtn.style.display = '';
-  },
-
-  _continuousStartRecording(stream) {
-    if (!this._continuousMode || !stream.active) return;
-    var self = this;
-
-    // Set up audio analyser for silence detection
-    var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    var source = audioCtx.createMediaStreamSource(stream);
-    var analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 512;
-    source.connect(analyser);
-    self._continuousAnalyser = analyser;
-    self._continuousHasSound = false;
-
-    // Start recorder
-    var recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
-    self._voiceAudioChunks = [];
-    recorder.ondataavailable = function(e) { if (e.data.size > 0) self._voiceAudioChunks.push(e.data); };
-    recorder.onstop = function() {
-      // Don't stop stream tracks - we reuse the stream
-      audioCtx.close().catch(function() {});
-      if (self._continuousHasSound && self._voiceAudioChunks.length > 0) {
-        self._continuousTranscribeAndRestart(stream);
-      } else if (self._continuousMode) {
-        // No sound detected, restart recording
-        self._continuousStartRecording(stream);
-      }
-    };
-    self._voiceMediaRecorder = recorder;
-    recorder.start();
-
-    // Monitor audio levels for silence detection
-    var dataArray = new Uint8Array(analyser.frequencyBinCount);
-    var silenceStart = null;
-    var SILENCE_THRESHOLD = 15; // amplitude below this = silence
-    var SILENCE_DURATION = 3000; // 3s of silence triggers send
-
-    function checkAudio() {
-      if (!self._continuousMode || recorder.state === 'inactive') return;
-      analyser.getByteFrequencyData(dataArray);
-
-      // Calculate average volume
-      var sum = 0;
-      for (var i = 0; i < dataArray.length; i++) sum += dataArray[i];
-      var avg = sum / dataArray.length;
-
-      if (avg > SILENCE_THRESHOLD) {
-        // Sound detected
-        self._continuousHasSound = true;
-        silenceStart = null;
-      } else if (self._continuousHasSound) {
-        // Silence after sound
-        if (!silenceStart) {
-          silenceStart = Date.now();
-        } else if (Date.now() - silenceStart >= SILENCE_DURATION) {
-          // 3s of silence after speech - stop and send
-          if (recorder.state !== 'inactive') recorder.stop();
-          return;
-        }
-      }
-
-      requestAnimationFrame(checkAudio);
-    }
-    checkAudio();
-  },
-
-  _continuousTranscribeAndRestart(stream) {
-    var self = this;
-    var blob = new Blob(this._voiceAudioChunks, { type: 'audio/webm' });
-    var fd = new FormData();
-    fd.append('audio', blob, 'recording.webm');
-
-    this._addMessage('system', 'Transcrevendo...');
-
-    fetch(_url('api/voice/transcribe'), {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + API._token },
-      body: fd
-    }).then(function(resp) { return resp.json(); }).then(function(data) {
-      self._removeLastSystemMessage('Transcrevendo...');
-
-      if (data.error || !data.text || !data.text.trim()) {
-        // Nothing detected, restart
-        if (self._continuousMode) self._continuousStartRecording(stream);
-        return;
-      }
-
-      var text = data.text.trim();
-      self._addMessage('user', text);
-
-      if (self._streamJson) {
-        API.sendStreamJsonInput(self._currentSessionId, text);
-      } else {
-        var sid = self._currentSessionId;
-        var chars = text.split('');
-        chars.forEach(function(ch, i) {
-          setTimeout(function() { API.sendInput(sid, ch); }, i * 10);
-        });
-        setTimeout(function() { API.sendInput(sid, '\r'); }, chars.length * 10 + 20);
-      }
-
-      self._setState('thinking');
-      self._updateThinkingIndicator('Processando');
-
-      // Restart listening after sending
-      if (self._continuousMode) {
-        self._continuousStartRecording(stream);
-      }
-    }).catch(function(err) {
-      self._removeLastSystemMessage('Transcrevendo...');
-      self._addMessage('system', 'Erro: ' + err.message);
-      if (self._continuousMode) self._continuousStartRecording(stream);
-    });
   },
 
   // Feed text incrementally - split into sentences for fast first-speech
