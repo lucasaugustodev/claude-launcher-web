@@ -1225,7 +1225,7 @@ const ChatViewManager = {
     if (micBtn) micBtn.style.display = '';
   },
 
-  // Feed text incrementally - split into sentences for fast first-speech
+  // Feed text incrementally - split into sentences, start fetching TTS immediately
   _feedVoiceText(text) {
     if (!this._isVoiceAgentSession()) return;
     this._voiceSentenceBuffer += text;
@@ -1238,7 +1238,8 @@ const ChatViewManager = {
     for (var i = 0; i < parts.length; i++) {
       var sentence = parts[i].trim();
       if (sentence.length > 3) {
-        this._voiceTtsQueue.push(sentence);
+        // Start fetching immediately - queue holds promises, not strings
+        this._voiceTtsQueue.push(this._fetchTts(sentence));
       }
     }
     // Start playing immediately - don't wait for full response
@@ -1250,7 +1251,7 @@ const ChatViewManager = {
     var remaining = this._voiceSentenceBuffer.trim();
     this._voiceSentenceBuffer = '';
     if (remaining.length > 3 && this._isVoiceAgentSession()) {
-      this._voiceTtsQueue.push(remaining);
+      this._voiceTtsQueue.push(this._fetchTts(remaining));
       this._processVoiceQueue();
     }
   },
