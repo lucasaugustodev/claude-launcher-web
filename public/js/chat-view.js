@@ -21,8 +21,7 @@ const ChatViewManager = {
   _voiceHead: null,
   _voiceAvatarReady: false,
   _voiceRecording: false,
-  _voiceMediaRecorder: null,
-  _voiceAudioChunks: [],
+  _voiceRecognition: null,
   _voiceTimerInterval: null,
   _voiceAvatarVisible: true,
   _voiceSpeaking: false,
@@ -30,10 +29,7 @@ const ChatViewManager = {
   _voiceTtsPlaying: false,
   _voiceSentenceBuffer: '', // accumulates text until sentence boundary
   _continuousMode: false,
-  _continuousStream: null,
-  _continuousAnalyser: null,
-  _continuousSilenceTimer: null,
-  _continuousHasSound: false,
+  _continuousRecognition: null,
 
   open(sessionId, { streamJson } = {}) {
     this._currentSessionId = sessionId;
