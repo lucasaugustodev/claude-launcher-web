@@ -348,7 +348,7 @@ function AgentChat({ onProcessesUpdated }) {
         value: input,
         onChange: (e) => setInput(e.target.value),
         onKeyDown: handleKeyDown,
-        placeholder: sessionId ? 'Responda ao agente...' : 'Descreva sua empresa e processos para iniciar...',
+        placeholder: status !== 'idle' ? 'Responda ao agente...' : 'Descreva sua empresa e processos para iniciar...',
         disabled: status === 'connecting' || status === 'ended',
       }),
       h('div', { style: { display: 'flex', flexDirection: 'column', gap: 4 } },
