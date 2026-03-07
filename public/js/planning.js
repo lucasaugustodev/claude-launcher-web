@@ -49,20 +49,32 @@ function getHeatColor(score) {
 
 function saveState(nodes, edges) {
   try {
-    const data = {
-      nodes: nodes.map(n => ({ ...n, selected: undefined })),
-      edges: edges.map(e => ({ ...e, selected: undefined })),
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch { /* quota exceeded */ }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ nodes, edges }));
+  } catch {}
 }
 
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
+    return raw ? JSON.parse(raw) : null;
   } catch { return null; }
+}
+
+// ─── Parse [PROCESSES] blocks from agent text ───
+
+function extractProcesses(text) {
+  const match = text.match(/\[PROCESSES\]\s*([\s\S]*?)\s*\[\/PROCESSES\]/);
+  if (!match) return null;
+  try {
+    return JSON.parse(match[1].trim());
+  } catch {
+    return null;
+  }
+}
+
+// Strip [PROCESSES] blocks from display text
+function stripProcessBlocks(text) {
+  return text.replace(/\[PROCESSES\][\s\S]*?\[\/PROCESSES\]/g, '').trim();
 }
 
 // ─── Custom Process Node ───
@@ -75,50 +87,24 @@ function ProcessNode({ data, selected }) {
     style: {
       background: '#1e1e2e',
       border: '2px solid ' + (selected ? '#89b4fa' : color),
-      borderRadius: 8,
-      padding: 12,
-      minWidth: 200,
-      maxWidth: 280,
-      color: '#cdd6f4',
-      fontSize: 12,
-      fontFamily: '-apple-system, sans-serif',
+      borderRadius: 8, padding: 12, minWidth: 200, maxWidth: 280,
+      color: '#cdd6f4', fontSize: 12, fontFamily: '-apple-system, sans-serif',
       boxShadow: selected ? '0 0 12px rgba(137,180,250,0.4)' : '0 2px 8px rgba(0,0,0,0.3)',
-      transition: 'border-color 0.2s, box-shadow 0.2s',
     }
   },
     h(Handle, { type: 'target', position: Position.Top, style: { background: color, width: 8, height: 8 } }),
-
-    // Header
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 } },
       h('strong', { style: { fontSize: 14, flex: 1, marginRight: 8 } }, data.nome || 'Sem nome'),
-      h('span', {
-        style: {
-          background: color, color: '#000', borderRadius: 4,
-          padding: '2px 8px', fontSize: 10, fontWeight: 'bold', flexShrink: 0,
-        }
-      }, heat)
+      h('span', { style: { background: color, color: '#000', borderRadius: 4, padding: '2px 8px', fontSize: 10, fontWeight: 'bold', flexShrink: 0 } }, heat)
     ),
-
-    // Stats grid
     h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', fontSize: 11, color: '#a6adc8' } },
       h('span', null, '\u23F1 ', data.frequencia || '-'),
       h('span', null, '\uD83D\uDC64 ', data.responsavel || '-'),
       h('span', null, '\uD83D\uDCAA ', data.esforco || '-'),
       h('span', null, '\uD83C\uDFAF ', data.impacto || '-'),
     ),
-
-    // Systems
-    data.sistemas && data.sistemas.length > 0 &&
-      h('div', { style: { marginTop: 6, fontSize: 10, color: '#7f849c' } },
-        '\uD83D\uDD27 ', data.sistemas.join(', ')
-      ),
-
-    // Friction
-    data.friccao &&
-      h('div', { style: { marginTop: 6, fontSize: 10, color: '#f38ba8', fontStyle: 'italic' } },
-        '\u26A1 ', data.friccao
-      ),
-
+    data.sistemas && data.sistemas.length > 0 && h('div', { style: { marginTop: 6, fontSize: 10, color: '#7f849c' } }, '\uD83D\uDD27 ', data.sistemas.join(', ')),
+    data.friccao && h('div', { style: { marginTop: 6, fontSize: 10, color: '#f38ba8', fontStyle: 'italic' } }, '\u26A1 ', data.friccao),
     h(Handle, { type: 'source', position: Position.Bottom, style: { background: color, width: 8, height: 8 } })
   );
 }
@@ -129,55 +115,27 @@ const nodeTypes = { process: ProcessNode };
 
 function NodeEditModal({ node, onSave, onClose, onDelete }) {
   const [form, setForm] = useState({
-    nome: '',
-    frequencia: 'semanal',
-    responsavel: '',
-    sistemas: '',
-    esforco: 'medio',
-    impacto: 'medio',
-    friccao: '',
+    nome: '', frequencia: 'semanal', responsavel: '', sistemas: '',
+    esforco: 'medio', impacto: 'medio', friccao: '',
     ...(node ? {
       ...node.data,
       sistemas: Array.isArray(node.data.sistemas) ? node.data.sistemas.join(', ') : (node.data.sistemas || ''),
     } : {}),
   });
 
-  const handleChange = (field) => (e) => setForm(f => ({ ...f, [field]: e.target.value }));
+  const set = (f) => (e) => setForm(prev => ({ ...prev, [f]: e.target.value }));
 
   const handleSubmit = () => {
     const sistemas = form.sistemas.split(',').map(s => s.trim()).filter(Boolean);
-    const data = {
-      nome: form.nome,
-      frequencia: form.frequencia,
-      responsavel: form.responsavel,
-      sistemas,
-      esforco: form.esforco,
-      impacto: form.impacto,
-      friccao: form.friccao,
-    };
+    const data = { nome: form.nome, frequencia: form.frequencia, responsavel: form.responsavel, sistemas, esforco: form.esforco, impacto: form.impacto, friccao: form.friccao };
     data.heatScore = calcHeatScore(data);
     onSave(data);
   };
 
   const field = (label, name, type, options) => {
-    if (type === 'select') {
-      return h(React.Fragment, null,
-        h('label', null, label),
-        h('select', { value: form[name], onChange: handleChange(name) },
-          options.map(o => h('option', { key: o.value, value: o.value }, o.label))
-        )
-      );
-    }
-    if (type === 'textarea') {
-      return h(React.Fragment, null,
-        h('label', null, label),
-        h('textarea', { value: form[name], onChange: handleChange(name), rows: 2 })
-      );
-    }
-    return h(React.Fragment, null,
-      h('label', null, label),
-      h('input', { type: 'text', value: form[name], onChange: handleChange(name) })
-    );
+    if (type === 'select') return h(React.Fragment, null, h('label', null, label), h('select', { value: form[name], onChange: set(name) }, options.map(o => h('option', { key: o.value, value: o.value }, o.label))));
+    if (type === 'textarea') return h(React.Fragment, null, h('label', null, label), h('textarea', { value: form[name], onChange: set(name), rows: 2 }));
+    return h(React.Fragment, null, h('label', null, label), h('input', { type: 'text', value: form[name], onChange: set(name) }));
   };
 
   return h('div', { className: 'planning-modal-overlay', onClick: (e) => { if (e.target === e.currentTarget) onClose(); } },
@@ -191,11 +149,7 @@ function NodeEditModal({ node, onSave, onClose, onDelete }) {
       field('Impacto', 'impacto', 'select', LEVEL_OPTIONS),
       field('Friccao (o que e chato/manual/lento)', 'friccao', 'textarea'),
       h('div', { className: 'planning-modal-actions' },
-        node && onDelete && h('button', {
-          className: 'btn btn-danger btn-sm',
-          style: { marginRight: 'auto' },
-          onClick: () => { onDelete(); onClose(); }
-        }, 'Excluir'),
+        node && onDelete && h('button', { className: 'btn btn-danger btn-sm', style: { marginRight: 'auto' }, onClick: () => { onDelete(); onClose(); } }, 'Excluir'),
         h('button', { className: 'btn btn-sm', onClick: onClose }, 'Cancelar'),
         h('button', { className: 'btn btn-primary btn-sm', onClick: handleSubmit }, 'Salvar'),
       )
@@ -203,78 +157,190 @@ function NodeEditModal({ node, onSave, onClose, onDelete }) {
   );
 }
 
-// ─── Agent Chat Panel ───
+// ─── Agent Chat Panel (real Claude session) ───
 
-function AgentChat({ onProcessesGenerated, generating, setGenerating }) {
-  const [messages, setMessages] = useState([
-    { role: 'agent', text: 'Descreva os processos da sua empresa. Pode ser em texto livre — eu vou extrair os processos, responsaveis, frequencias e pontos de friccao automaticamente.' }
-  ]);
+function AgentChat({ onProcessesUpdated }) {
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
+  const [status, setStatus] = useState('idle'); // idle | connecting | thinking | responding | input_wait | ended
   const chatRef = useRef(null);
+  const handlerRef = useRef(null);
+  const exitHandlerRef = useRef(null);
+  const textBufferRef = useRef('');
+  const sessionIdRef = useRef(null);
 
   useEffect(() => {
     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
   }, [messages]);
 
-  const handleSend = useCallback(async () => {
-    const text = input.trim();
-    if (!text || generating) return;
-    setInput('');
+  // Cleanup on unmount only
+  useEffect(() => {
+    return () => {
+      if (handlerRef.current) API.off('terminal:stream-json', handlerRef.current);
+      if (exitHandlerRef.current) API.off('terminal:exit', exitHandlerRef.current);
+      if (sessionIdRef.current) API.detachSession(sessionIdRef.current);
+    };
+  }, []);
 
-    const newMessages = [...messages, { role: 'user', text }];
-    setMessages(newMessages);
-    setGenerating(true);
+  const flushTextBuffer = useCallback(() => {
+    const text = textBufferRef.current;
+    if (!text) return;
+    textBufferRef.current = '';
+
+    // Check for process data
+    const processData = extractProcesses(text);
+    if (processData) {
+      onProcessesUpdated(processData.nodes || [], processData.edges || []);
+    }
+
+    const displayText = stripProcessBlocks(text);
+    if (displayText) {
+      setMessages(prev => [...prev, { role: 'agent', text: displayText }]);
+    }
+    if (processData) {
+      setMessages(prev => [...prev, { role: 'system', text: (processData.nodes || []).length + ' processo(s) mapeado(s) no canvas!' }]);
+    }
+  }, [onProcessesUpdated]);
+
+  const launchAgent = useCallback(async (initialMsg) => {
+    setStatus('connecting');
+    setMessages([{ role: 'system', text: 'Iniciando agente de process discovery...' }]);
 
     try {
-      const resp = await fetch('api/planning/analyze', {
+      const token = localStorage.getItem('token') || '';
+      const resp = await fetch('api/planning/launch', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + (localStorage.getItem('token') || ''),
-        },
-        body: JSON.stringify({
-          messages: newMessages.filter(m => m.role === 'user').map(m => m.text),
-        }),
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ message: initialMsg || null }),
       });
-
-      if (!resp.ok) throw new Error('Erro ao analisar processos');
-      const data = await resp.json();
-
-      if (data.reply) {
-        setMessages(prev => [...prev, { role: 'agent', text: data.reply }]);
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || 'Falha ao iniciar agente');
       }
+      const session = await resp.json();
+      setSessionId(session.id);
 
-      if (data.nodes && data.nodes.length > 0) {
-        setMessages(prev => [...prev, {
-          role: 'system',
-          text: `${data.nodes.length} processo(s) identificado(s) e adicionado(s) ao mapa!`
-        }]);
-        onProcessesGenerated(data.nodes, data.edges || []);
-      }
+      // Attach to session WebSocket
+      API.attachSession(session.id);
+
+      // Listen for stream-json events
+      const handler = (msg) => {
+        if (msg.sessionId !== session.id) return;
+        const event = msg.event;
+        if (!event) return;
+
+        switch (event.type) {
+          case 'system':
+            if (event.subtype === 'init') setStatus('thinking');
+            break;
+
+          case 'assistant': {
+            const content = event.message && event.message.content;
+            if (!Array.isArray(content)) break;
+
+            for (const block of content) {
+              if (block.type === 'text' && block.text) {
+                textBufferRef.current += block.text;
+                setStatus('responding');
+              } else if (block.type === 'tool_use') {
+                // Flush any accumulated text before tool
+                flushTextBuffer();
+                setStatus('thinking');
+              }
+            }
+            break;
+          }
+
+          case 'user':
+            // Tool result - flush text and show thinking
+            flushTextBuffer();
+            setStatus('thinking');
+            break;
+
+          case 'result':
+            // Turn complete
+            flushTextBuffer();
+            setStatus('input_wait');
+            break;
+        }
+      };
+
+      const exitHandler = (msg) => {
+        if (msg.sessionId !== session.id) return;
+        flushTextBuffer();
+        setStatus('ended');
+        setMessages(prev => [...prev, { role: 'system', text: 'Sessao do agente encerrada.' }]);
+      };
+
+      handlerRef.current = handler;
+      exitHandlerRef.current = exitHandler;
+      API.on('terminal:stream-json', handler);
+      API.on('terminal:exit', exitHandler);
+
+      setStatus('thinking');
     } catch (err) {
-      setMessages(prev => [...prev, { role: 'agent', text: 'Erro: ' + err.message + '. Tente novamente.' }]);
-    } finally {
-      setGenerating(false);
+      setMessages(prev => [...prev, { role: 'system', text: 'Erro: ' + err.message }]);
+      setStatus('idle');
     }
-  }, [input, messages, generating, onProcessesGenerated, setGenerating]);
+  }, [flushTextBuffer]);
+
+  const sendMessage = useCallback(() => {
+    const text = input.trim();
+    if (!text) return;
+    setInput('');
+
+    if (!sessionId) {
+      // First message - launch the agent
+      launchAgent(text);
+      setMessages(prev => [...prev, { role: 'user', text }]);
+      return;
+    }
+
+    // Send to existing session
+    setMessages(prev => [...prev, { role: 'user', text }]);
+    API.sendStreamJsonInput(sessionId, text);
+    setStatus('thinking');
+  }, [input, sessionId, launchAgent]);
+
+  const stopAgent = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      const token = localStorage.getItem('token') || '';
+      await fetch('api/sessions/' + sessionId + '/stop', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+    } catch {}
+    setStatus('ended');
+  }, [sessionId]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      sendMessage();
     }
+  };
+
+  const statusLabel = {
+    idle: null,
+    connecting: 'Conectando...',
+    thinking: 'Pensando...',
+    responding: 'Respondendo...',
+    input_wait: null,
+    ended: 'Encerrado',
   };
 
   return h(React.Fragment, null,
     h('div', { className: 'planning-chat', ref: chatRef },
-      messages.map((msg, i) =>
-        h('div', { key: i, className: 'planning-chat-msg ' + msg.role }, msg.text)
+      messages.length === 0 && h('div', { className: 'planning-chat-msg system' },
+        'Descreva sua empresa e seus processos. O agente vai conduzir a conversa e construir o mapa automaticamente.'
       ),
-      generating && h('div', { className: 'planning-loading' },
+      messages.map((msg, i) => h('div', { key: i, className: 'planning-chat-msg ' + msg.role }, msg.text)),
+      statusLabel[status] && h('div', { className: 'planning-loading' },
         h('span', { className: 'planning-loading-dot' }),
         h('span', { className: 'planning-loading-dot' }),
         h('span', { className: 'planning-loading-dot' }),
-        h('span', null, 'Analisando...')
+        h('span', null, statusLabel[status])
       ),
     ),
     h('div', { className: 'planning-chat-input' },
@@ -282,26 +348,32 @@ function AgentChat({ onProcessesGenerated, generating, setGenerating }) {
         value: input,
         onChange: (e) => setInput(e.target.value),
         onKeyDown: handleKeyDown,
-        placeholder: 'Descreva seus processos...',
-        disabled: generating,
+        placeholder: sessionId ? 'Responda ao agente...' : 'Descreva sua empresa e processos para iniciar...',
+        disabled: status === 'connecting' || status === 'ended',
       }),
-      h('button', {
-        className: 'btn btn-primary btn-sm',
-        onClick: handleSend,
-        disabled: !input.trim() || generating,
-      }, 'Enviar'),
-    )
+      h('div', { style: { display: 'flex', flexDirection: 'column', gap: 4 } },
+        h('button', {
+          className: 'btn btn-primary btn-sm',
+          onClick: sendMessage,
+          disabled: !input.trim() || status === 'connecting' || status === 'ended',
+        }, sessionId ? 'Enviar' : 'Iniciar'),
+        sessionId && status !== 'ended' && h('button', {
+          className: 'btn btn-danger btn-sm',
+          onClick: stopAgent,
+          style: { fontSize: 11 },
+        }, 'Parar'),
+      ),
+    ),
   );
 }
 
 // ─── Process List Panel ───
 
 function ProcessList({ nodes, onSelectNode, onAddNode }) {
-  const sorted = useMemo(() => {
-    return [...nodes]
-      .filter(n => n.type === 'process')
-      .sort((a, b) => (b.data.heatScore || 0) - (a.data.heatScore || 0));
-  }, [nodes]);
+  const sorted = useMemo(() =>
+    [...nodes].filter(n => n.type === 'process').sort((a, b) => (b.data.heatScore || 0) - (a.data.heatScore || 0)),
+    [nodes]
+  );
 
   return h('div', { className: 'planning-process-list' },
     h('div', { style: { padding: '8px 4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
@@ -311,11 +383,7 @@ function ProcessList({ nodes, onSelectNode, onAddNode }) {
     sorted.map(node => {
       const heat = node.data.heatScore || calcHeatScore(node.data);
       const color = getHeatColor(heat);
-      return h('div', {
-        key: node.id,
-        className: 'planning-process-item',
-        onClick: () => onSelectNode(node.id),
-      },
+      return h('div', { key: node.id, className: 'planning-process-item', onClick: () => onSelectNode(node.id) },
         h('span', { className: 'heat-dot', style: { background: color } }),
         h('span', { className: 'name' }, node.data.nome || 'Sem nome'),
         h('span', { className: 'score', style: { background: color, color: '#000' } }, heat),
@@ -333,12 +401,9 @@ function PlanningApp() {
   const [nodes, setNodes, onNodesChange] = useNodesState(saved?.nodes || []);
   const [edges, setEdges, onEdgesChange] = useEdgesState(saved?.edges || []);
   const [mode, setMode] = useState('agent');
-  const [editNode, setEditNode] = useState(null); // null or node object
+  const [editNode, setEditNode] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const reactFlowRef = useRef(null);
 
-  // Initialize counter
   useEffect(() => {
     if (saved?.nodes?.length) {
       const maxId = Math.max(...saved.nodes.map(n => parseInt(n.id) || 0));
@@ -346,31 +411,19 @@ function PlanningApp() {
     }
   }, []);
 
-  // Auto-save on changes
-  useEffect(() => {
-    saveState(nodes, edges);
-  }, [nodes, edges]);
+  useEffect(() => { saveState(nodes, edges); }, [nodes, edges]);
 
   const onConnect = useCallback((params) => {
-    setEdges(eds => addEdge({
-      ...params,
-      animated: true,
-      style: { stroke: '#6c7086' },
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#6c7086' },
-    }, eds));
+    setEdges(eds => addEdge({ ...params, animated: true, style: { stroke: '#6c7086' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#6c7086' } }, eds));
   }, [setEdges]);
 
-  const onNodeDoubleClick = useCallback((event, node) => {
-    if (node.type === 'process') {
-      setEditNode(node);
-    }
+  const onNodeDoubleClick = useCallback((_, node) => {
+    if (node.type === 'process') setEditNode(node);
   }, []);
 
   const handleEditSave = useCallback((data) => {
     if (editNode) {
-      setNodes(nds => nds.map(n =>
-        n.id === editNode.id ? { ...n, data: { ...n.data, ...data } } : n
-      ));
+      setNodes(nds => nds.map(n => n.id === editNode.id ? { ...n, data: { ...n.data, ...data } } : n));
       setEditNode(null);
     }
   }, [editNode, setNodes]);
@@ -385,24 +438,19 @@ function PlanningApp() {
 
   const addNewNode = useCallback((data) => {
     const id = String(nodeIdCounter++);
-    const existingCount = nodes.filter(n => n.type === 'process').length;
-    const col = existingCount % 3;
-    const row = Math.floor(existingCount / 3);
-
+    const count = nodes.filter(n => n.type === 'process').length;
     setNodes(nds => [...nds, {
-      id,
-      type: 'process',
-      position: { x: 50 + col * 300, y: 50 + row * 200 },
+      id, type: 'process',
+      position: { x: 50 + (count % 3) * 300, y: 50 + Math.floor(count / 3) * 200 },
       data: { ...data, heatScore: calcHeatScore(data) },
     }]);
     setShowAddModal(false);
   }, [nodes, setNodes]);
 
-  // Agent generates processes
-  const onProcessesGenerated = useCallback((processNodes, processEdges) => {
-    const startId = nodeIdCounter;
+  // Agent replaces ALL processes each time (full snapshot)
+  const onProcessesUpdated = useCallback((processNodes, processEdges) => {
     const newNodes = processNodes.map((p, i) => {
-      const id = String(nodeIdCounter++);
+      const id = String(i + 1);
       const col = i % 3;
       const row = Math.floor(i / 3);
       const data = {
@@ -415,46 +463,39 @@ function PlanningApp() {
         friccao: p.friccao || '',
       };
       data.heatScore = calcHeatScore(data);
-      return {
-        id,
-        type: 'process',
-        position: { x: 80 + col * 300, y: 80 + row * 220 },
-        data,
-      };
+      return { id, type: 'process', position: { x: 80 + col * 300, y: 80 + row * 220 }, data };
     });
 
     const newEdges = (processEdges || []).map((e, i) => ({
-      id: 'e-gen-' + Date.now() + '-' + i,
-      source: String(startId + (parseInt(e.source) || 0)),
-      target: String(startId + (parseInt(e.target) || 0)),
-      animated: true,
-      label: e.label || '',
+      id: 'e-' + i,
+      source: String((parseInt(e.source) || 0) + 1),
+      target: String((parseInt(e.target) || 0) + 1),
+      animated: true, label: e.label || '',
       style: { stroke: '#6c7086' },
       markerEnd: { type: MarkerType.ArrowClosed, color: '#6c7086' },
     }));
 
-    setNodes(nds => [...nds, ...newNodes]);
-    setEdges(eds => [...eds, ...newEdges]);
+    nodeIdCounter = processNodes.length + 1;
+    setNodes(newNodes);
+    setEdges(newEdges);
   }, [setNodes, setEdges]);
 
   const clearAll = useCallback(() => {
     if (confirm('Limpar todo o mapa de processos?')) {
-      setNodes([]);
-      setEdges([]);
-      nodeIdCounter = 1;
+      setNodes([]); setEdges([]); nodeIdCounter = 1;
     }
   }, [setNodes, setEdges]);
 
-  // Keyboard shortcuts
+  // Delete selected nodes
   useEffect(() => {
     const handler = (e) => {
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
         setNodes(nds => {
-          const selected = nds.filter(n => n.selected);
-          if (selected.length === 0) return nds;
-          const selectedIds = new Set(selected.map(n => n.id));
-          setEdges(eds => eds.filter(e => !selectedIds.has(e.source) && !selectedIds.has(e.target)));
+          const sel = nds.filter(n => n.selected);
+          if (!sel.length) return nds;
+          const ids = new Set(sel.map(n => n.id));
+          setEdges(eds => eds.filter(e => !ids.has(e.source) && !ids.has(e.target)));
           return nds.filter(n => !n.selected);
         });
       }
@@ -466,25 +507,14 @@ function PlanningApp() {
   return h('div', { className: 'planning-container' },
     // Sidebar
     h('div', { className: 'planning-sidebar' },
-      h('div', { className: 'planning-sidebar-header' },
-        h('h3', null, '\uD83D\uDDFA Planejamento'),
-      ),
+      h('div', { className: 'planning-sidebar-header' }, h('h3', null, '\uD83D\uDDFA Planejamento')),
       h('div', { className: 'planning-mode-tabs' },
-        h('button', {
-          className: 'planning-mode-tab' + (mode === 'agent' ? ' active' : ''),
-          onClick: () => setMode('agent'),
-        }, '\uD83E\uDD16 Agente'),
-        h('button', {
-          className: 'planning-mode-tab' + (mode === 'user' ? ' active' : ''),
-          onClick: () => setMode('user'),
-        }, '\u270F\uFE0F Manual'),
+        h('button', { className: 'planning-mode-tab' + (mode === 'agent' ? ' active' : ''), onClick: () => setMode('agent') }, '\uD83E\uDD16 Agente'),
+        h('button', { className: 'planning-mode-tab' + (mode === 'user' ? ' active' : ''), onClick: () => setMode('user') }, '\u270F\uFE0F Manual'),
       ),
       mode === 'agent'
-        ? h(AgentChat, { onProcessesGenerated, generating, setGenerating })
-        : h(ProcessList, { nodes, onSelectNode: (id) => {
-            const node = nodes.find(n => n.id === id);
-            if (node) setEditNode(node);
-          }, onAddNode: () => setShowAddModal(true) }),
+        ? h(AgentChat, { onProcessesUpdated })
+        : h(ProcessList, { nodes, onSelectNode: (id) => setEditNode(nodes.find(n => n.id === id)), onAddNode: () => setShowAddModal(true) }),
     ),
 
     // Canvas
@@ -493,74 +523,35 @@ function PlanningApp() {
         h('button', { onClick: () => setShowAddModal(true) }, '+ Processo'),
         h('button', { onClick: clearAll }, '\uD83D\uDDD1 Limpar'),
         h('button', { onClick: () => {
-          const data = JSON.stringify({ nodes, edges }, null, 2);
-          const blob = new Blob([data], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url; a.download = 'process-map.json'; a.click();
-          URL.revokeObjectURL(url);
+          const blob = new Blob([JSON.stringify({ nodes, edges }, null, 2)], { type: 'application/json' });
+          const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'process-map.json'; a.click();
         }}, '\u2B07 Exportar'),
       ),
 
       h(ReactFlow, {
-        ref: reactFlowRef,
-        nodes,
-        edges,
-        onNodesChange,
-        onEdgesChange,
-        onConnect,
-        onNodeDoubleClick,
-        nodeTypes,
-        fitView: true,
-        deleteKeyCode: null,
+        nodes, edges, onNodesChange, onEdgesChange, onConnect, onNodeDoubleClick, nodeTypes,
+        fitView: true, deleteKeyCode: null,
         style: { background: '#11111b' },
-        defaultEdgeOptions: {
-          animated: true,
-          style: { stroke: '#6c7086' },
-          markerEnd: { type: MarkerType.ArrowClosed, color: '#6c7086' },
-        },
+        defaultEdgeOptions: { animated: true, style: { stroke: '#6c7086' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#6c7086' } },
       },
         h(Background, { color: '#313244', gap: 20, size: 1 }),
         h(Controls, { showInteractive: false }),
         h(MiniMap, {
-          nodeColor: (node) => {
-            if (node.type !== 'process') return '#45475a';
-            const heat = node.data.heatScore || calcHeatScore(node.data);
-            return getHeatColor(heat);
-          },
-          maskColor: 'rgba(0,0,0,0.6)',
-          style: { background: '#1e1e2e' },
+          nodeColor: (n) => n.type === 'process' ? getHeatColor(n.data.heatScore || calcHeatScore(n.data)) : '#45475a',
+          maskColor: 'rgba(0,0,0,0.6)', style: { background: '#1e1e2e' },
         }),
       ),
 
-      // Heat legend
       h('div', { className: 'planning-legend' },
         h('span', null, 'Heat:'),
-        h('span', { className: 'planning-legend-item' },
-          h('span', { className: 'planning-legend-dot', style: { background: '#4ade80' } }), 'Baixo'),
-        h('span', { className: 'planning-legend-item' },
-          h('span', { className: 'planning-legend-dot', style: { background: '#facc15' } }), 'Medio'),
-        h('span', { className: 'planning-legend-item' },
-          h('span', { className: 'planning-legend-dot', style: { background: '#fb923c' } }), 'Alto'),
-        h('span', { className: 'planning-legend-item' },
-          h('span', { className: 'planning-legend-dot', style: { background: '#ef4444' } }), 'Critico'),
+        ...[['#4ade80', 'Baixo'], ['#facc15', 'Medio'], ['#fb923c', 'Alto'], ['#ef4444', 'Critico']].map(([c, l]) =>
+          h('span', { key: l, className: 'planning-legend-item' }, h('span', { className: 'planning-legend-dot', style: { background: c } }), l)
+        ),
       ),
     ),
 
-    // Edit modal
-    editNode && h(NodeEditModal, {
-      node: editNode,
-      onSave: handleEditSave,
-      onClose: () => setEditNode(null),
-      onDelete: handleEditDelete,
-    }),
-
-    // Add modal
-    showAddModal && h(NodeEditModal, {
-      node: null,
-      onSave: addNewNode,
-      onClose: () => setShowAddModal(false),
-    }),
+    editNode && h(NodeEditModal, { node: editNode, onSave: handleEditSave, onClose: () => setEditNode(null), onDelete: handleEditDelete }),
+    showAddModal && h(NodeEditModal, { node: null, onSave: addNewNode, onClose: () => setShowAddModal(false) }),
   );
 }
 
@@ -569,7 +560,6 @@ function PlanningApp() {
 let root = null;
 
 window.renderPlanningPage = function(container) {
-  // Add reactflow CSS if not already added
   if (!document.getElementById('reactflow-css')) {
     const link = document.createElement('link');
     link.id = 'reactflow-css';
@@ -578,11 +568,9 @@ window.renderPlanningPage = function(container) {
     document.head.appendChild(link);
   }
 
-  // Container needs explicit height for React Flow
   container.style.height = '100%';
   container.style.display = 'flex';
 
-  // Mount React app
   const wrapper = document.createElement('div');
   wrapper.style.width = '100%';
   wrapper.style.height = '100%';
@@ -591,7 +579,6 @@ window.renderPlanningPage = function(container) {
   root = createRoot(wrapper);
   root.render(h(PlanningApp));
 
-  // Cleanup when LegacyPage unmounts (innerHTML = '')
   const observer = new MutationObserver(() => {
     if (!container.contains(wrapper)) {
       root?.unmount();
