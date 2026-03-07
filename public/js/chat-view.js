@@ -1018,7 +1018,7 @@ const ChatViewManager = {
       });
 
       self._voiceHead.showAvatar({
-        url: _url('api/voice/avatars/avatarsdk.glb'),
+        url: _url('avatars/avatarsdk.glb'),
         body: 'M',
         avatarMood: 'neutral',
         lipsyncLang: 'en',
