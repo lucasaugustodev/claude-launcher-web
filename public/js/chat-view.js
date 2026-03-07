@@ -1134,24 +1134,6 @@ const ChatViewManager = {
     this._updateThinkingIndicator('Processando');
   },
 
-  _removeLastSystemMessage(text) {
-    for (var i = this._messages.length - 1; i >= 0; i--) {
-      if (this._messages[i].type === 'system' && this._messages[i].content === text) {
-        this._messages.splice(i, 1);
-        break;
-      }
-    }
-    var list = document.getElementById('chat-messages');
-    if (!list) return;
-    var msgs = list.querySelectorAll('.chat-msg-system');
-    for (var j = msgs.length - 1; j >= 0; j--) {
-      if (msgs[j].textContent.trim() === text) {
-        msgs[j].remove();
-        break;
-      }
-    }
-  },
-
   // ─── Continuous Listening Mode ───
 
   _toggleContinuousMode() {
