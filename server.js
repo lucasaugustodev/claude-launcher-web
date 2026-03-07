@@ -2471,7 +2471,7 @@ app.post('/api/voice/tts', checkToken, async (req, res) => {
 
   try {
     const tts = new MsEdgeTTS();
-    await tts.setMetadata(voice || 'pt-BR-AntonioNeural', MsEdgeTTS.OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+    await tts.setMetadata(voice || 'pt-BR-AntonioNeural', OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
     const readable = tts.toStream(text.trim());
 
     const chunks = [];
