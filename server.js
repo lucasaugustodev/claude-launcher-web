@@ -2541,9 +2541,11 @@ Use valores realistas. Se o usuario nao especificou algo, faca sua melhor estima
 
   try {
     const nodeExe = process.execPath;
+    const childEnv = { ...process.env };
+    delete childEnv.CLAUDECODE;
     const child = require('child_process').spawn(nodeExe, [cliPath, '--print', '-p', prompt], {
       timeout: 120000,
-      env: { ...process.env },
+      env: childEnv,
       cwd: __dirname,
     });
 
