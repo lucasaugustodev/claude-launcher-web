@@ -107,11 +107,11 @@
     addMessage('system', 'Conectando ao assistente...');
 
     var token = localStorage.getItem('token') || '';
-    fetch('api/apm/launch-agent', {
+    fetch('api/claude-agents/launch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
       body: JSON.stringify({
-        agentId: 'manager-gestor',
+        agentName: 'manager-gestor',
         workingDirectory: null,
         mode: 'bypass',
         nodeMemory: null,
