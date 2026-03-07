@@ -27,7 +27,6 @@ const ChatViewManager = {
   _voiceSpeaking: false,
   _voiceTtsQueue: [],    // queue of text chunks to speak
   _voiceTtsPlaying: false,
-  _voiceNextTtsPromise: null, // pre-fetched next TTS promise
   _voiceSentenceBuffer: '', // accumulates text until sentence boundary
   _continuousMode: false,
   _continuousRecognition: null,
