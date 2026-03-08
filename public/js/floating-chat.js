@@ -152,7 +152,6 @@
 
   function handleStreamEvent(event) {
     if (!event || !event.type) return;
-    console.log('[FCHAT] event:', event.type, event.subtype || '');
 
     switch (event.type) {
       case 'system':
