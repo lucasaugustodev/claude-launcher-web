@@ -116,6 +116,7 @@
         mode: 'bypass',
         nodeMemory: null,
         streamJson: true,
+        prompt: 'Ola! Apresente-se brevemente e pergunte como pode ajudar.',
       }),
     }).then(function(resp) {
       if (!resp.ok) throw new Error('Falha ao iniciar agente');

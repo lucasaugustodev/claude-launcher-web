@@ -533,7 +533,7 @@ app.get('/api/claude-agents/:name', checkToken, (req, res) => {
 
 // POST /api/claude-agents/launch - Launch a Claude Code agent
 app.post('/api/claude-agents/launch', checkToken, (req, res) => {
-  const { agentName, workingDirectory, mode, nodeMemory, streamJson } = req.body;
+  const { agentName, workingDirectory, mode, nodeMemory, streamJson, prompt } = req.body;
   if (!agentName) return res.status(400).json({ error: 'agentName is required' });
 
   // Verify agent exists
@@ -556,6 +556,7 @@ app.post('/api/claude-agents/launch', checkToken, (req, res) => {
       mode: mode || 'normal',
       nodeMemory: nodeMemory || null,
       streamJson: !!streamJson,
+      prompt: prompt || null,
     });
     console.log(`[AGENT] Claude agent "${agentName}" launched in ${cwd}, session ${session.id}`);
     res.status(201).json(session);
