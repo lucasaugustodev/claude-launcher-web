@@ -593,12 +593,10 @@
   }
 
   function waitForAuth() {
-    console.log('[FCHAT] waitForAuth check, token:', !!(API && API._token));
     if (!API || !API._token) {
       setTimeout(waitForAuth, 1000);
       return;
     }
-    console.log('[FCHAT] Auth ready, launching session...');
     // Pre-launch session and avatar in background so it's ready when user clicks
     if (!FC.sessionId && FC.status === 'idle') launchSession();
     initAvatar();
