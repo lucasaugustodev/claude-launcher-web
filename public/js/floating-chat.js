@@ -582,17 +582,24 @@
   // ─── Init ───
 
   function init() {
-    // Wait for API and auth to be ready
-    if (typeof API === 'undefined' || !localStorage.getItem('token')) {
-      setTimeout(init, 500);
+    // Wait for API to be ready
+    if (typeof API === 'undefined') {
+      setTimeout(init, 200);
       return;
     }
     buildWidget();
+    // Watch for auth and pre-launch session when token becomes available
+    waitForAuth();
+  }
+
+  function waitForAuth() {
+    if (!localStorage.getItem('token')) {
+      setTimeout(waitForAuth, 1000);
+      return;
+    }
     // Pre-launch session and avatar in background so it's ready when user clicks
-    setTimeout(function() {
-      if (!FC.sessionId && FC.status === 'idle') launchSession();
-      initAvatar();
-    }, 1000);
+    if (!FC.sessionId && FC.status === 'idle') launchSession();
+    initAvatar();
   }
 
   // Start when DOM ready
