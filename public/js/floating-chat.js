@@ -126,9 +126,7 @@
       FC.status = 'thinking';
       updateStatus();
 
-      API.attachSession(session.id);
-
-      // Stream JSON handler
+      // Register handlers BEFORE attach so replayed events are captured
       FC.streamHandler = function(msg) {
         if (msg.sessionId !== session.id) return;
         handleStreamEvent(msg.event);
@@ -143,6 +141,8 @@
 
       API.on('terminal:stream-json', FC.streamHandler);
       API.on('terminal:exit', FC.exitHandler);
+
+      API.attachSession(session.id);
 
     }).catch(function(err) {
       addMessage('system', 'Erro: ' + err.message);
