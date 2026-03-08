@@ -593,7 +593,7 @@
   }
 
   function waitForAuth() {
-    if (!localStorage.getItem('cl_token')) {
+    if (!API || !API._token) {
       setTimeout(waitForAuth, 1000);
       return;
     }
