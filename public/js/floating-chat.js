@@ -371,11 +371,31 @@
     return fetch('api/voice/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-      body: JSON.stringify({ text: sentence }),
+      body: JSON.stringify({ text: sentence.substring(0, 500), voice: 'pt-BR-AntonioNeural', lipsync: false }),
     }).then(function(r) {
       if (!r.ok) throw new Error('TTS error');
       return r.arrayBuffer();
-    }).catch(function() { return null; });
+    }).then(function(arrayBuf) {
+      if (!arrayBuf) return null;
+      // If avatar ready, decode for speakAudio; otherwise return raw buffer
+      if (FC.voiceAvatarReady && FC.voiceHead && FC.voiceHead.audioCtx) {
+        return FC.voiceHead.audioCtx.decodeAudioData(arrayBuf).then(function(audioBuffer) {
+          var words = sentence.split(/\s+/);
+          var avgDuration = (audioBuffer.duration * 1000) / Math.max(words.length, 1);
+          var wtimes = [];
+          var wdurations = [];
+          for (var i = 0; i < words.length; i++) {
+            wtimes.push(Math.round(i * avgDuration));
+            wdurations.push(Math.round(avgDuration * 0.8));
+          }
+          return { audioBuffer: audioBuffer, words: words, wtimes: wtimes, wdurations: wdurations };
+        });
+      }
+      return { rawBuffer: arrayBuf };
+    }).catch(function(err) {
+      console.error('FloatingChat TTS error:', err);
+      return null;
+    });
   }
 
   function processTTSQueue() {
@@ -389,28 +409,38 @@
     var promise = FC.ttsQueue.shift();
     FC.ttsPlaying = true;
 
-    promise.then(function(buf) {
-      if (!buf) {
+    promise.then(function(ttsData) {
+      if (!ttsData) {
         FC.ttsPlaying = false;
         processTTSQueue();
         return;
       }
 
-      // Play via avatar if ready, otherwise Audio element
-      if (FC.voiceAvatarReady && FC.voiceHead) {
+      // Play via avatar with lipsync
+      if (ttsData.audioBuffer && FC.voiceAvatarReady && FC.voiceHead) {
         try {
-          var blob = new Blob([buf], { type: 'audio/mpeg' });
-          var url = URL.createObjectURL(blob);
-          FC.voiceHead.speakAudio(url, {}, function() {
-            URL.revokeObjectURL(url);
+          FC.voiceHead.speakAudio({
+            audio: ttsData.audioBuffer,
+            words: ttsData.words,
+            wtimes: ttsData.wtimes,
+            wdurations: ttsData.wdurations,
+            markers: [function() { FC.voiceHead.lookAtCamera(100); }],
+            mtimes: [0]
+          });
+          var duration = ttsData.audioBuffer.duration * 1000;
+          setTimeout(function() {
             FC.ttsPlaying = false;
             processTTSQueue();
-          });
+          }, duration + 100);
           return;
-        } catch (e) { /* fallback below */ }
+        } catch (e) {
+          console.error('FloatingChat speakAudio error:', e);
+        }
       }
 
-      // Fallback: plain audio
+      // Fallback: plain audio element
+      var buf = ttsData.rawBuffer || ttsData.audioBuffer;
+      if (!buf) { FC.ttsPlaying = false; processTTSQueue(); return; }
       var blob = new Blob([buf], { type: 'audio/mpeg' });
       var url = URL.createObjectURL(blob);
       var audio = new Audio(url);
