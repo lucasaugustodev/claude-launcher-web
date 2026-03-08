@@ -125,6 +125,7 @@
 
       // Register handlers BEFORE attach so replayed events are captured
       FC.streamHandler = function(msg) {
+        console.log('[FCHAT] stream msg:', msg.sessionId === session.id ? 'MATCH' : 'SKIP', msg.type, msg.event && msg.event.type);
         if (msg.sessionId !== session.id) return;
         handleStreamEvent(msg.event);
       };
