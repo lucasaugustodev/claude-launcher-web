@@ -104,7 +104,6 @@
   function launchSession() {
     FC.status = 'connecting';
     updateStatus();
-    addMessage('system', 'Conectando ao assistente...');
 
     var token = localStorage.getItem('token') || '';
     fetch('api/claude-agents/launch', {
