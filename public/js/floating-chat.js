@@ -103,7 +103,7 @@
     FC.status = 'connecting';
     updateStatus();
 
-    var token = localStorage.getItem('token') || '';
+    var token = localStorage.getItem('cl_token') || '';
     fetch('api/claude-agents/launch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
@@ -364,7 +364,7 @@
   }
 
   function fetchTTS(sentence) {
-    var token = localStorage.getItem('token') || '';
+    var token = localStorage.getItem('cl_token') || '';
     return fetch('api/voice/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
@@ -593,7 +593,7 @@
   }
 
   function waitForAuth() {
-    if (!localStorage.getItem('token')) {
+    if (!localStorage.getItem('cl_token')) {
       setTimeout(waitForAuth, 1000);
       return;
     }
