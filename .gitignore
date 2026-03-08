@@ -2,3 +2,4 @@ node_modules/
 data/
 tunnel.log
 *.log
+".playwright-cli/" 

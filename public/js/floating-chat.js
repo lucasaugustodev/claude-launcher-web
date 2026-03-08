@@ -103,7 +103,7 @@
     FC.status = 'connecting';
     updateStatus();
 
-    var token = localStorage.getItem('cl_token') || '';
+    var token = (API && API._token) || '';
     fetch('api/claude-agents/launch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
@@ -364,7 +364,7 @@
   }
 
   function fetchTTS(sentence) {
-    var token = localStorage.getItem('cl_token') || '';
+    var token = (API && API._token) || '';
     return fetch('api/voice/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
