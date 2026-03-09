@@ -649,9 +649,8 @@
       setTimeout(waitForAuth, 1000);
       return;
     }
-    // Pre-launch session in background so it's ready when user clicks
-    // NOTE: do NOT init avatar here — panel is display:none so Three.js gets 0x0 canvas
-    if (!FC.sessionId && FC.status === 'idle') launchSession();
+    // NOTE: do NOT launch here — wait for user to open the panel
+    // This avoids creating orphan sessions on every page load
   }
 
   // Start when DOM ready
