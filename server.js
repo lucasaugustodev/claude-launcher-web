@@ -10,6 +10,7 @@ const gitWatcher = require('./git-watcher');
 const githubCli = require('./github-cli');
 const clineCli = require('./cline-cli');
 const geminiCli = require('./gemini-cli');
+const gwsCli = require('./gws-cli');
 const claudeCli = require('./claude-cli');
 const scheduler = require('./scheduler');
 const multer = require('multer');
