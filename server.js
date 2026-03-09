@@ -2538,6 +2538,14 @@ geminiCli.getStatus().then(s => {
   console.log(`[GEMINI] Status cached: installed=${s.installed}, v=${s.version}`);
 }).catch(() => {});
 
+const cleanedGws = ptyManager.cleanupOrphanedGws();
+if (cleanedGws > 0) {
+  console.log(`Cleaned ${cleanedGws} orphaned GWS sessions`);
+}
+
+gwsCli.getStatus().then(s => {
+  console.log(`[GWS] Status cached: installed=${s.installed}, v=${s.version}`);
+}).catch(() => {});
 
 // --- Voice TTS (Edge TTS via msedge-tts, no GPU/Python needed) ---
 const { MsEdgeTTS, OUTPUT_FORMAT } = require('msedge-tts');
