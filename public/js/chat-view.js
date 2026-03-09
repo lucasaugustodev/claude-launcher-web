@@ -301,8 +301,13 @@ const ChatViewManager = {
 
       case 'user_input':
         // Replayed user message from buffer (or broadcast from another client)
+        // Skip if this is the broadcast of our own just-sent message
         if (event.text) {
-          this._addMessage('user', event.text);
+          if (this._lastSentText === event.text) {
+            this._lastSentText = null; // consume the skip
+          } else {
+            this._addMessage('user', event.text);
+          }
         }
         break;
     }
