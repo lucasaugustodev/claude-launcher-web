@@ -662,8 +662,9 @@ function sendStreamJsonInput(sessionId, message) {
     handle.output = handle.output.slice(-400000);
   }
   // Broadcast to listeners so all attached clients see it
+  const broadcast = JSON.stringify({ type: 'stream-json', sessionId, event: { type: 'user_input', text: message } });
   for (const fn of handle.listeners) {
-    fn({ type: 'stream-json', sessionId, event: { type: 'user_input', text: message } });
+    fn(broadcast);
   }
 
   return true;
