@@ -316,9 +316,8 @@
         modelFPS: 30
       });
 
-      var baseUrl = document.querySelector('base') ? document.querySelector('base').href : '/';
       FC.voiceHead.showAvatar({
-        url: baseUrl + 'avatars/avatarsdk.glb',
+        url: _url('avatars/avatarsdk.glb'),
         body: 'M',
         avatarMood: 'neutral',
         lipsyncLang: 'en',
