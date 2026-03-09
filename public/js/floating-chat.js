@@ -306,6 +306,7 @@
       if (!container) return;
 
       FC.voiceHead = new TalkingHead(container, {
+        ttsEndpoint: null,
         lipsyncModules: ['en', 'fi'],
         cameraView: 'head',
         cameraRotateEnable: false,
@@ -314,6 +315,13 @@
         avatarIdleEyeContact: 1,
         avatarIdleHeadMove: 0,
         modelFPS: 30,
+        lightAmbientColor: '#ffffff',
+        lightAmbientIntensity: 2,
+        lightDirectColor: '#ffffff',
+        lightDirectIntensity: 3,
+        lightSpotColor: '#ffffff',
+        lightSpotIntensity: 0.5,
+        pcBackground: new mod.THREE ? new mod.THREE.Color(0x1e1e2e) : null,
       });
 
       var baseUrl = document.querySelector('base') ? document.querySelector('base').href : '/';
