@@ -280,6 +280,7 @@
 
   function addMessage(role, text) {
     FC.messages.push({ role: role, text: text });
+    saveMessages();
     renderMessages();
     scrollToBottom();
   }
