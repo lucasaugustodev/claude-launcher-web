@@ -23,6 +23,7 @@
     unread: 0,
     streamHandler: null,
     exitHandler: null,
+    _flushTimer: null,
   };
 
   // ─── Build DOM ───
