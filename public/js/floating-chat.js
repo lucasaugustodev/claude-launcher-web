@@ -340,6 +340,7 @@
     input.value = '';
 
     addMessage('user', text);
+    FC._lastSentText = text; // Mark to skip duplicate user_input broadcast
 
     if (!FC.sessionId || FC.status === 'ended') {
       // Relaunch
