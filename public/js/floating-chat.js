@@ -321,7 +321,7 @@
         lightDirectIntensity: 3,
         lightSpotColor: '#ffffff',
         lightSpotIntensity: 0.5,
-        pcBackground: new mod.THREE ? new mod.THREE.Color(0x1e1e2e) : null,
+        pcBackground: '#1e1e2e',
       });
 
       var baseUrl = document.querySelector('base') ? document.querySelector('base').href : '/';
