@@ -100,6 +100,7 @@
   // ─── Session Persistence ───
 
   var STORAGE_KEY = 'fchat_session_id';
+  var MESSAGES_KEY = 'fchat_messages';
 
   function saveSession(id) {
     FC.sessionId = id;
@@ -108,11 +109,23 @@
 
   function clearSession() {
     FC.sessionId = null;
-    try { localStorage.removeItem(STORAGE_KEY); } catch(e) {}
+    FC.messages = [];
+    try { localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(MESSAGES_KEY); } catch(e) {}
   }
 
   function getSavedSession() {
     try { return localStorage.getItem(STORAGE_KEY); } catch(e) { return null; }
+  }
+
+  function saveMessages() {
+    try { localStorage.setItem(MESSAGES_KEY, JSON.stringify(FC.messages.slice(-50))); } catch(e) {}
+  }
+
+  function loadMessages() {
+    try {
+      var raw = localStorage.getItem(MESSAGES_KEY);
+      if (raw) { FC.messages = JSON.parse(raw); renderMessages(); scrollToBottom(); }
+    } catch(e) {}
   }
 
   function registerHandlers(sessionId) {
