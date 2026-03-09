@@ -311,7 +311,7 @@
     if (!FC.sessionId || FC.status === 'ended') {
       // Relaunch
       FC.status = 'idle';
-      FC.sessionId = null;
+      clearSession();
       launchSession();
       // Queue the message to send after connect
       var checkInterval = setInterval(function() {
