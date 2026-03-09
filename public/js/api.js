@@ -388,6 +388,73 @@ const API = {
     return this.fetch('api/gemini-sessions/history', { method: 'DELETE' });
   },
 
+  // ─── GWS CLI ───
+
+  getGwsCLIStatus() {
+    return this.fetch('api/gws-cli/status');
+  },
+
+  async installGwsCLI(onProgress) {
+    const headers = {};
+    if (this._token) headers['Authorization'] = 'Bearer ' + this._token;
+
+    const res = await fetch(_url('api/gws-cli/install'), { method: 'POST', headers });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let result = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value);
+      const lines = text.split('\n').filter(l => l.startsWith('data: '));
+      for (const line of lines) {
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.type === 'progress' && onProgress) onProgress(data.text);
+          if (data.type === 'done') result = data;
+          if (data.type === 'error') throw new Error(data.message);
+        } catch (e) {
+          if (e.message && !e.message.includes('JSON')) throw e;
+        }
+      }
+    }
+    return result;
+  },
+
+  startGwsCLIAuth() {
+    return this.fetch('api/gws-cli/auth', { method: 'POST' });
+  },
+
+  // ─── GWS Sessions ───
+
+  getActiveGwsSessions() {
+    return this.fetch('api/gws-sessions');
+  },
+
+  getGwsSessionHistory() {
+    return this.fetch('api/gws-sessions/history');
+  },
+
+  launchGwsSession(prompt, workingDirectory) {
+    return this.fetch('api/gws-sessions/launch', {
+      method: 'POST',
+      body: JSON.stringify({ prompt: prompt || undefined, workingDirectory: workingDirectory || undefined }),
+    });
+  },
+
+  stopGwsSession(id) {
+    return this.fetch(`api/gws-sessions/${id}/stop`, { method: 'POST' });
+  },
+
+  getGwsSessionOutput(id) {
+    return this.fetch(`api/gws-sessions/${id}/output`);
+  },
+
+  clearGwsHistory() {
+    return this.fetch('api/gws-sessions/history', { method: 'DELETE' });
+  },
+
   // ─── File Manager ───
 
   listFiles(dirPath) {
