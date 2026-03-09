@@ -163,6 +163,41 @@ function clearGeminiHistory() {
   saveGeminiSessions(sessions);
 }
 
+// ─── GWS Sessions ───
+
+function getGwsSessions() {
+  return readJSON('gws-sessions.json', []);
+}
+
+function saveGwsSessions(sessions) {
+  writeJSON('gws-sessions.json', sessions);
+}
+
+function getGwsSession(id) {
+  return getGwsSessions().find(s => s.id === id) || null;
+}
+
+function addGwsSession(session) {
+  const sessions = getGwsSessions();
+  sessions.push(session);
+  saveGwsSessions(sessions);
+  return session;
+}
+
+function updateGwsSession(id, updates) {
+  const sessions = getGwsSessions();
+  const idx = sessions.findIndex(s => s.id === id);
+  if (idx === -1) return null;
+  sessions[idx] = { ...sessions[idx], ...updates };
+  saveGwsSessions(sessions);
+  return sessions[idx];
+}
+
+function clearGwsHistory() {
+  const sessions = getGwsSessions().filter(s => s.status === 'running');
+  saveGwsSessions(sessions);
+}
+
 // ─── Users ───
 
 function getUsers() {
