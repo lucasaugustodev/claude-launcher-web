@@ -857,6 +857,7 @@ const ChatViewManager = {
     input.value = '';
 
     this._addMessage('user', text);
+    this._lastSentText = text; // Mark to skip duplicate user_input broadcast
 
     if (this._streamJson) {
       // Stream JSON: send structured message via stdin JSON
