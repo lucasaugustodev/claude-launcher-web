@@ -238,7 +238,11 @@
             FC.voiceBuffer += block.text;
             FC.status = 'responding';
             updateStatus();
+            // Auto-flush after short delay so text appears quickly
+            clearTimeout(FC._flushTimer);
+            FC._flushTimer = setTimeout(flushVoiceBuffer, 400);
           } else if (block.type === 'tool_use') {
+            clearTimeout(FC._flushTimer);
             flushVoiceBuffer();
             FC.status = 'thinking';
             updateStatus();
