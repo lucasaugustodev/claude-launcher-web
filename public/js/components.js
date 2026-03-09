@@ -2324,6 +2324,443 @@ async function renderGeminiSessionHistory(section) {
 }
 
 // ═══════════════════════════════════════════
+// Google Workspace CLI Page
+// ═══════════════════════════════════════════
+
+async function renderGwsCliPage(container, guard) {
+  if (!guard) guard = () => true;
+  container.innerHTML = '';
+  container.appendChild(el('h2', { textContent: 'Google Workspace CLI' }));
+
+  const statusCard = el('div', {
+    className: 'card',
+    innerHTML: '<p style="color:var(--text-muted)">Verificando...</p>',
+  });
+  container.appendChild(statusCard);
+
+  try {
+    const status = await API.getGwsCLIStatus();
+    if (!guard()) return;
+    renderGwsCliStatus(container, statusCard, status);
+  } catch (err) {
+    if (!guard()) return;
+    statusCard.innerHTML = `<p style="color:var(--danger)">Erro ao verificar: ${err.message}</p>`;
+  }
+}
+
+function renderGwsCliStatus(container, statusCard, status) {
+  statusCard.innerHTML = '';
+
+  if (!status.installed) {
+    // ─── State 1: Not installed ───
+    statusCard.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' } }, [
+      el('span', { className: 'status-tag status-crashed', textContent: 'Nao instalado' }),
+      el('span', { textContent: 'Google Workspace CLI nao encontrado neste servidor', style: { color: 'var(--text-muted)', fontSize: '14px' } }),
+    ]));
+
+    statusCard.appendChild(el('p', {
+      textContent: 'Google Workspace CLI (gws) permite interagir com todas as APIs do Google Workspace via linha de comando. Instale via npm:',
+      style: { fontSize: '14px', marginBottom: '12px' },
+    }));
+
+    statusCard.appendChild(renderCopyBlock('npm install -g @googleworkspace/cli'));
+
+    const installLog = el('pre', {
+      className: 'code-block',
+      style: { display: 'none', maxHeight: '300px', overflow: 'auto', marginTop: '12px' },
+    });
+
+    const installBtn = el('button', {
+      className: 'btn btn-primary',
+      textContent: 'Instalar Google Workspace CLI',
+      style: { marginTop: '12px' },
+      onClick: async () => {
+        installBtn.disabled = true;
+        installBtn.textContent = 'Instalando...';
+        installLog.style.display = 'block';
+        installLog.textContent = '';
+
+        try {
+          await API.installGwsCLI((text) => {
+            installLog.textContent += text;
+            installLog.scrollTop = installLog.scrollHeight;
+          });
+          showToast('Google Workspace CLI instalado!');
+          const newStatus = await API.getGwsCLIStatus();
+          renderGwsCliStatus(container, statusCard, newStatus);
+        } catch (err) {
+          showToast('Falha na instalacao: ' + err.message, 'error');
+          installBtn.textContent = 'Tentar novamente';
+          installBtn.disabled = false;
+        }
+      },
+    });
+
+    statusCard.appendChild(installBtn);
+    statusCard.appendChild(installLog);
+
+  } else {
+    // ─── State 2: Installed ───
+    statusCard.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' } }, [
+      el('span', { className: 'status-tag status-completed', textContent: 'Instalado' }),
+      el('span', {
+        textContent: `GWS CLI v${status.version || '?'}`,
+        style: { color: 'var(--text-muted)', fontSize: '14px' },
+      }),
+    ]));
+
+    // Auth status
+    if (!status.authenticated) {
+      statusCard.appendChild(el('p', {
+        textContent: 'Autenticacao necessaria. Use "gws auth login" para configurar o acesso ao Google Workspace.',
+        style: { fontSize: '13px', color: 'var(--warning)', marginBottom: '12px' },
+      }));
+
+      const authBtn = el('button', {
+        className: 'btn btn-primary',
+        textContent: 'Fazer Login (gws auth login)',
+        style: { marginBottom: '12px' },
+        onClick: async () => {
+          authBtn.textContent = 'Abrindo terminal...';
+          try {
+            const result = await API.startGwsCLIAuth();
+            getViewManager().open(result.sessionId);
+            document.getElementById('terminal-title').textContent = 'gws auth login';
+            const onExit = (msg) => {
+              if (msg.sessionId === result.sessionId) {
+                API.off('terminal:exit', onExit);
+                renderGwsCliPage(container);
+              }
+            };
+            API.on('terminal:exit', onExit);
+          } catch (err) {
+            showToast('Erro: ' + err.message, 'error');
+            authBtn.textContent = 'Fazer Login (gws auth login)';
+          }
+        },
+      });
+      statusCard.appendChild(authBtn);
+    } else {
+      statusCard.appendChild(el('p', {
+        textContent: `Autenticado: ${status.user || 'Google OAuth'}`,
+        style: { fontSize: '13px', color: 'var(--text-muted)', marginBottom: '12px' },
+      }));
+    }
+
+    // ─── New Session Button + Collapsible Form ───
+    const _env = API.serverEnv || {};
+    const _sep = _env.sep || '/';
+    const _home = _env.homeDir || '/root';
+    function _joinPath(base, name) { return base + _sep + name; }
+
+    const launchForm = el('div', { style: { display: 'none', marginTop: '12px' } });
+
+    const cwdInput = el('input', {
+      type: 'text',
+      placeholder: `Diretorio de trabalho (padrao: ${_home})`,
+      value: _home,
+    });
+
+    const cwdShortcuts = el('div', {
+      style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' },
+    });
+
+    const basePaths = _env.platform === 'win32' ? [
+      { label: 'Home', path: _home },
+      { label: 'Documents', path: _joinPath(_home, 'Documents') },
+      { label: 'Desktop', path: _joinPath(_home, 'Desktop') },
+    ] : [
+      { label: 'Home', path: _home },
+      { label: '/opt', path: '/opt' },
+      { label: '/srv', path: '/srv' },
+    ];
+
+    for (const bp of basePaths) {
+      cwdShortcuts.appendChild(el('button', {
+        className: 'btn btn-sm',
+        textContent: bp.label,
+        style: { fontSize: '11px', padding: '2px 8px', color: 'var(--text-muted)' },
+        onClick: () => { cwdInput.value = bp.path; },
+      }));
+    }
+
+    const promptInput = el('textarea', {
+      placeholder: 'Comando GWS (ex: drive files list --params \'{"pageSize": 10}\')',
+      style: { minHeight: '50px', resize: 'vertical' },
+    });
+
+    function launchGws(withPrompt) {
+      return async () => {
+        const btn = withPrompt ? launchWithPromptBtn : launchInteractiveBtn;
+        const origText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Iniciando...';
+        try {
+          const p = withPrompt ? promptInput.value.trim() : null;
+          if (withPrompt && !p) { showToast('Digite um comando', 'error'); btn.disabled = false; btn.textContent = origText; return; }
+          const session = await API.launchGwsSession(p, cwdInput.value.trim() || undefined);
+          showToast('Sessao GWS iniciada!');
+          launchForm.style.display = 'none';
+          newSessionBtn.style.display = '';
+          getViewManager().open(session.id);
+          document.getElementById('terminal-title').textContent = `GWS — ${session.id.slice(0, 8)}`;
+          const onExit = (msg) => {
+            if (msg.sessionId === session.id) {
+              API.off('terminal:exit', onExit);
+              renderGwsCliStatus(container, statusCard, status);
+            }
+          };
+          API.on('terminal:exit', onExit);
+        } catch (err) {
+          showToast('Erro: ' + err.message, 'error');
+        }
+        btn.textContent = origText;
+        btn.disabled = false;
+      };
+    }
+
+    const launchInteractiveBtn = el('button', {
+      className: 'btn btn-primary',
+      textContent: 'Iniciar Interativa',
+      onClick: launchGws(false),
+    });
+
+    const launchWithPromptBtn = el('button', {
+      className: 'btn btn-primary',
+      textContent: 'Iniciar com Comando',
+      onClick: launchGws(true),
+    });
+
+    const cancelBtn = el('button', {
+      className: 'btn btn-sm',
+      textContent: 'Cancelar',
+      onClick: () => { launchForm.style.display = 'none'; newSessionBtn.style.display = ''; },
+    });
+
+    launchForm.appendChild(el('div', { className: 'form-group' }, [
+      el('label', { textContent: 'Diretorio de Trabalho' }),
+      cwdInput,
+      cwdShortcuts,
+    ]));
+
+    launchForm.appendChild(el('div', { className: 'form-group' }, [
+      el('label', { textContent: 'Comando GWS (opcional)' }),
+      promptInput,
+    ]));
+
+    launchForm.appendChild(el('div', {
+      style: { display: 'flex', gap: '8px', flexWrap: 'wrap' },
+    }, [launchInteractiveBtn, launchWithPromptBtn, cancelBtn]));
+
+    const newSessionBtn = el('button', {
+      className: 'btn btn-primary',
+      textContent: '+ Nova Sessao',
+      onClick: () => {
+        newSessionBtn.style.display = 'none';
+        launchForm.style.display = '';
+      },
+    });
+
+    statusCard.appendChild(newSessionBtn);
+    statusCard.appendChild(launchForm);
+
+    // ─── Active GWS Sessions ───
+    const activeSection = el('div', { style: { marginTop: '24px' } });
+    statusCard.appendChild(activeSection);
+    renderGwsActiveSessions(activeSection, container, statusCard, status);
+
+    // ─── Session History ───
+    const historySection = el('div', { style: { marginTop: '24px' } });
+    statusCard.appendChild(historySection);
+    renderGwsSessionHistory(historySection);
+  }
+}
+
+async function renderGwsActiveSessions(section, container, statusCard, status) {
+  section.innerHTML = '';
+  section.appendChild(el('div', {
+    style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' },
+  }, [
+    el('h3', { textContent: 'Sessoes Ativas', style: { fontSize: '16px', margin: '0' } }),
+    el('button', {
+      className: 'btn btn-sm',
+      textContent: 'Atualizar',
+      onClick: () => renderGwsActiveSessions(section, container, statusCard, status),
+    }),
+  ]));
+
+  try {
+    const sessions = await API.getActiveGwsSessions();
+    if (sessions.length === 0) {
+      section.appendChild(el('p', {
+        textContent: 'Nenhuma sessao ativa.',
+        style: { color: 'var(--text-muted)', fontSize: '13px' },
+      }));
+      return;
+    }
+
+    for (const s of sessions) {
+      const elapsed = formatDuration(s.elapsedSeconds);
+      const card = el('div', {
+        style: {
+          background: 'var(--surface1)', borderRadius: '8px', padding: '12px 16px', marginBottom: '8px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        },
+      }, [
+        el('div', {}, [
+          el('span', {
+            textContent: `Sessao ${s.id.slice(0, 8)}`,
+            style: { fontWeight: '600', fontSize: '14px' },
+          }),
+          el('span', {
+            textContent: ` — PID ${s.pid} — ${elapsed}`,
+            style: { color: 'var(--text-muted)', fontSize: '12px', marginLeft: '8px' },
+          }),
+          ...(s.prompt ? [el('div', {
+            textContent: s.prompt.length > 80 ? s.prompt.slice(0, 80) + '...' : s.prompt,
+            style: { fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', fontStyle: 'italic' },
+          })] : []),
+        ]),
+        el('div', { style: { display: 'flex', gap: '8px' } }, [
+          el('button', {
+            className: 'btn btn-primary btn-sm',
+            textContent: 'Abrir Terminal',
+            onClick: () => {
+              getViewManager().open(s.id);
+              document.getElementById('terminal-title').textContent = `GWS — ${s.id.slice(0, 8)}`;
+            },
+          }),
+          el('button', {
+            className: 'btn btn-danger btn-sm',
+            textContent: 'Parar',
+            onClick: async () => {
+              try {
+                await API.stopGwsSession(s.id);
+                showToast('Sessao parada');
+                renderGwsActiveSessions(section, container, statusCard, status);
+              } catch (err) {
+                showToast(err.message, 'error');
+              }
+            },
+          }),
+        ]),
+      ]);
+      section.appendChild(card);
+    }
+  } catch (err) {
+    section.appendChild(el('p', {
+      textContent: 'Erro: ' + err.message,
+      style: { color: 'var(--danger)', fontSize: '13px' },
+    }));
+  }
+}
+
+async function renderGwsSessionHistory(section) {
+  section.innerHTML = '';
+  section.appendChild(el('div', {
+    style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' },
+  }, [
+    el('h3', { textContent: 'Historico', style: { fontSize: '16px', margin: '0' } }),
+    el('div', { style: { display: 'flex', gap: '8px' } }, [
+      el('button', {
+        className: 'btn btn-sm',
+        textContent: 'Atualizar',
+        onClick: () => renderGwsSessionHistory(section),
+      }),
+      el('button', {
+        className: 'btn btn-danger btn-sm',
+        textContent: 'Limpar',
+        onClick: async () => {
+          if (!confirm('Limpar historico de sessoes GWS?')) return;
+          try {
+            await API.clearGwsHistory();
+            showToast('Historico limpo');
+            renderGwsSessionHistory(section);
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        },
+      }),
+    ]),
+  ]));
+
+  try {
+    const sessions = await API.getGwsSessionHistory();
+    const history = sessions
+      .filter(s => s.status !== 'running')
+      .sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+
+    if (history.length === 0) {
+      section.appendChild(el('p', {
+        textContent: 'Nenhuma sessao no historico.',
+        style: { color: 'var(--text-muted)', fontSize: '13px' },
+      }));
+      return;
+    }
+
+    const tableContainer = el('div', { className: 'table-container' });
+    const table = el('table');
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th>Sessao</th>
+          <th>Comando</th>
+          <th>Status</th>
+          <th>Inicio</th>
+          <th>Duracao</th>
+          <th>Acoes</th>
+        </tr>
+      </thead>
+    `;
+
+    const tbody = el('tbody');
+    for (const s of history) {
+      const tr = el('tr');
+      const statusClass = s.status || 'stopped';
+
+      tr.appendChild(el('td', { textContent: s.id.slice(0, 8) }));
+      tr.appendChild(el('td', {
+        textContent: s.prompt ? (s.prompt.length > 40 ? s.prompt.slice(0, 40) + '...' : s.prompt) : '(interativo)',
+        style: { color: s.prompt ? 'var(--text-primary)' : 'var(--text-muted)', fontStyle: s.prompt ? 'normal' : 'italic' },
+      }));
+      const tdStatus = el('td');
+      tdStatus.innerHTML = `<span class="status-tag ${statusClass}">${s.status || '-'}</span>`;
+      tr.appendChild(tdStatus);
+      tr.appendChild(el('td', { textContent: new Date(s.startedAt).toLocaleString() }));
+      tr.appendChild(el('td', { textContent: s.durationSeconds ? formatDuration(s.durationSeconds) : '-' }));
+
+      const tdActions = el('td', { className: 'history-actions' });
+      tdActions.appendChild(el('button', {
+        className: 'btn btn-sm',
+        textContent: 'Output',
+        onClick: async () => {
+          try {
+            const { output } = await API.getGwsSessionOutput(s.id);
+            getViewManager().openReadOnly(
+              `GWS — ${s.id.slice(0, 8)} (historico)`,
+              output,
+            );
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        },
+      }));
+      tr.appendChild(tdActions);
+      tbody.appendChild(tr);
+    }
+
+    table.appendChild(tbody);
+    tableContainer.appendChild(table);
+    section.appendChild(tableContainer);
+  } catch (err) {
+    section.appendChild(el('p', {
+      textContent: 'Erro: ' + err.message,
+      style: { color: 'var(--danger)', fontSize: '13px' },
+    }));
+  }
+}
+
+// ═══════════════════════════════════════════
 // APM Agent Profiles Page
 // ═══════════════════════════════════════════
 
