@@ -252,12 +252,14 @@
       }
 
       case 'user':
+        clearTimeout(FC._flushTimer);
         flushVoiceBuffer();
         FC.status = 'thinking';
         updateStatus();
         break;
 
       case 'result':
+        clearTimeout(FC._flushTimer);
         flushVoiceBuffer();
         FC.status = 'input_wait';
         updateStatus();
