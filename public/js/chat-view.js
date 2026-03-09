@@ -298,6 +298,13 @@ const ChatViewManager = {
         // Flush any remaining buffered text to TTS
         this._flushVoiceBuffer();
         break;
+
+      case 'user_input':
+        // Replayed user message from buffer (or broadcast from another client)
+        if (event.text) {
+          this._addMessage('user', event.text);
+        }
+        break;
     }
   },
 
