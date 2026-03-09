@@ -1526,6 +1526,7 @@ function ContentRouter({ page }) {
     case 'github-cli': return html`<${LegacyPage} renderFn=${renderGitHubCLIPage} />`;
     case 'cline-cli': return html`<${LegacyPage} renderFn=${renderClineCliPage} />`;
     case 'gemini-cli': return html`<${LegacyPage} renderFn=${renderGeminiCliPage} />`;
+    case 'gws-cli': return html`<${LegacyPage} renderFn=${renderGwsCliPage} />`;
     case 'claude-agents': return html`<${LegacyPage} renderFn=${renderClaudeAgentsPage} />`;
     case 'agent-profiles': return html`<${LegacyPage} renderFn=${renderAgentProfilesPage} />`;
     case 'voice-manager': return html`<${LegacyPage} renderFn=${renderVoiceManagerPage} />`;
