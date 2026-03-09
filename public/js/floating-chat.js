@@ -315,13 +315,11 @@
         avatarIdleEyeContact: 1,
         avatarIdleHeadMove: 0,
         modelFPS: 30,
-        lightAmbientColor: '#ffffff',
+        lightAmbientColor: 0xffffff,
         lightAmbientIntensity: 2,
-        lightDirectColor: '#ffffff',
-        lightDirectIntensity: 3,
-        lightSpotColor: '#ffffff',
-        lightSpotIntensity: 0.5,
-        pcBackground: '#1e1e2e',
+        lightDirectColor: 0x8888aa,
+        lightDirectIntensity: 30,
+        lightSpotIntensity: 0,
       });
 
       var baseUrl = document.querySelector('base') ? document.querySelector('base').href : '/';
