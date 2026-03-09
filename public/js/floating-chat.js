@@ -84,8 +84,8 @@
       bubble.classList.add('active');
       FC.unread = 0;
       document.getElementById('fchat-badge').classList.remove('show');
-      // Launch session if not started yet
-      if (!FC.sessionId && FC.status === 'idle') launchSession();
+      // Launch or resume session if not started yet
+      if (!FC.sessionId && FC.status === 'idle') resumeOrLaunch();
       // Init avatar if not done
       if (!FC.voiceHead) initAvatar();
       // Focus input
