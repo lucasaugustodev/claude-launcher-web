@@ -97,14 +97,82 @@
     }
   }
 
-  // ─── Launch Agent Session ───
+  // ─── Session Persistence ───
+
+  var STORAGE_KEY = 'fchat_session_id';
+
+  function saveSession(id) {
+    FC.sessionId = id;
+    try { localStorage.setItem(STORAGE_KEY, id); } catch(e) {}
+  }
+
+  function clearSession() {
+    FC.sessionId = null;
+    try { localStorage.removeItem(STORAGE_KEY); } catch(e) {}
+  }
+
+  function getSavedSession() {
+    try { return localStorage.getItem(STORAGE_KEY); } catch(e) { return null; }
+  }
+
+  function registerHandlers(sessionId) {
+    // Clean up old handlers
+    if (FC.streamHandler) API.off('terminal:stream-json', FC.streamHandler);
+    if (FC.exitHandler) API.off('terminal:exit', FC.exitHandler);
+
+    FC.streamHandler = function(msg) {
+      if (msg.sessionId !== sessionId) return;
+      handleStreamEvent(msg.event);
+    };
+    FC.exitHandler = function(msg) {
+      if (msg.sessionId !== sessionId) return;
+      flushVoiceBuffer();
+      FC.status = 'ended';
+      updateStatus();
+      clearSession();
+      addMessage('system', 'Sessao encerrada.');
+    };
+
+    API.on('terminal:stream-json', FC.streamHandler);
+    API.on('terminal:exit', FC.exitHandler);
+  }
+
+  // ─── Resume or Launch Agent Session ───
+
+  function resumeOrLaunch() {
+    var saved = getSavedSession();
+    if (saved) {
+      // Check if session is still alive
+      var token = (API && API._token) || '';
+      fetch(_url('api/sessions'), {
+        headers: { 'Authorization': 'Bearer ' + token },
+      }).then(function(r) { return r.json(); }).then(function(sessions) {
+        var alive = sessions.some(function(s) { return s.id === saved; });
+        if (alive) {
+          FC.sessionId = saved;
+          FC.status = 'input_wait';
+          updateStatus();
+          registerHandlers(saved);
+          API.attachSession(saved);
+        } else {
+          clearSession();
+          launchSession();
+        }
+      }).catch(function() {
+        clearSession();
+        launchSession();
+      });
+    } else {
+      launchSession();
+    }
+  }
 
   function launchSession() {
     FC.status = 'connecting';
     updateStatus();
 
     var token = (API && API._token) || '';
-    fetch('api/claude-agents/launch', {
+    fetch(_url('api/claude-agents/launch'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
       body: JSON.stringify({
@@ -119,26 +187,11 @@
       if (!resp.ok) throw new Error('Falha ao iniciar agente');
       return resp.json();
     }).then(function(session) {
-      FC.sessionId = session.id;
+      saveSession(session.id);
       FC.status = 'thinking';
       updateStatus();
 
-      // Register handlers BEFORE attach so replayed events are captured
-      FC.streamHandler = function(msg) {
-        if (msg.sessionId !== session.id) return;
-        handleStreamEvent(msg.event);
-      };
-      FC.exitHandler = function(msg) {
-        if (msg.sessionId !== session.id) return;
-        flushVoiceBuffer();
-        FC.status = 'ended';
-        updateStatus();
-        addMessage('system', 'Sessao encerrada.');
-      };
-
-      API.on('terminal:stream-json', FC.streamHandler);
-      API.on('terminal:exit', FC.exitHandler);
-
+      registerHandlers(session.id);
       API.attachSession(session.id);
 
     }).catch(function(err) {
