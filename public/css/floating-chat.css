@@ -71,8 +71,8 @@
   position: fixed;
   bottom: 96px;
   right: 24px;
-  width: 380px;
-  height: 560px;
+  width: 400px;
+  height: 580px;
   max-height: calc(100vh - 120px);
   background: #1e1e2e;
   border: 1px solid #45475a;
@@ -94,47 +94,54 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Header */
+/* ─── Top bar: Avatar + Name + Status ─── */
 .fchat-header {
-  padding: 12px 16px;
-  background: rgba(255,255,255,0.04);
-  border-bottom: 1px solid #313244;
+  padding: 0;
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: stretch;
   flex-shrink: 0;
+  border-bottom: 1px solid #313244;
+  background: transparent;
+  height: 120px;
+  position: relative;
 }
 
 .fchat-header-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  overflow: hidden;
-  background: #111;
+  width: 120px;
+  height: 120px;
   flex-shrink: 0;
+  overflow: hidden;
+  position: relative;
+  /* transparent background — Three.js canvas shows through */
+  background: transparent;
 }
 
 .fchat-header-info {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 12px;
 }
 
 .fchat-header-name {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   color: #cdd6f4;
+  margin-bottom: 2px;
 }
 
 .fchat-header-status {
-  font-size: 11px;
+  font-size: 12px;
   color: #a6adc8;
 }
 
 .fchat-header-status .dot {
   display: inline-block;
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  margin-right: 4px;
+  margin-right: 5px;
   vertical-align: middle;
 }
 
@@ -143,13 +150,17 @@
 .fchat-header-status .dot.offline { background: #585b70; }
 
 .fchat-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
   background: none;
   border: none;
   color: #6c7086;
-  font-size: 18px;
+  font-size: 16px;
   cursor: pointer;
   padding: 4px 8px;
   border-radius: 6px;
+  z-index: 2;
 }
 
 .fchat-close:hover {
@@ -157,14 +168,10 @@
   background: rgba(243,139,168,0.1);
 }
 
-/* Avatar view area */
+/* ─── Avatar area (now inside header-avatar) ─── */
 .fchat-avatar-area {
-  width: 100%;
-  height: 200px;
-  background: #111;
-  flex-shrink: 0;
-  position: relative;
-  overflow: hidden;
+  display: none;
+  /* Avatar is now rendered inside fchat-header-avatar */
 }
 
 .fchat-avatar-loading {
@@ -173,7 +180,7 @@
   left: 50%;
   transform: translate(-50%, -50%);
   color: #585b70;
-  font-size: 11px;
+  font-size: 10px;
 }
 
 /* Messages */
@@ -339,6 +346,13 @@
     bottom: 80px;
     height: calc(100vh - 100px);
     border-radius: 12px;
+  }
+  .fchat-header {
+    height: 100px;
+  }
+  .fchat-header-avatar {
+    width: 100px;
+    height: 100px;
   }
   .fchat-bubble {
     right: 16px;
