@@ -374,11 +374,18 @@
 
   function initAvatar() {
     if (FC.voiceHead) return;
+    var container = document.getElementById('fchat-header-avatar');
+    if (!container) return;
+
+    // Add loading indicator inside header avatar
+    var loading = document.createElement('div');
+    loading.className = 'fchat-avatar-loading';
+    loading.id = 'fchat-avatar-loading';
+    loading.textContent = 'Carregando...';
+    container.appendChild(loading);
+
     import('https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@1.7/modules/talkinghead.mjs').then(function(mod) {
       var TalkingHead = mod.TalkingHead;
-      var container = document.getElementById('fchat-avatar-area');
-      var loading = document.getElementById('fchat-avatar-loading');
-      if (!container) return;
 
       FC.voiceHead = new TalkingHead(container, {
         lipsyncModules: ['en', 'fi'],
@@ -409,14 +416,19 @@
       }).then(function() {
         if (loading) loading.style.display = 'none';
         FC.voiceAvatarReady = true;
-        FC.voiceHead.setView('head', { cameraDistance: 0.6, cameraX: 0, cameraY: 0, cameraRotateX: 0, cameraRotateY: 0 });
+        // Tighter framing for 120x120 container — closer to face
+        FC.voiceHead.setView('head', { cameraDistance: 0.45, cameraX: 0, cameraY: 0.02, cameraRotateX: 0, cameraRotateY: 0 });
         FC.voiceHead.lookAtCamera(100);
         FC.voiceLookInterval = setInterval(function() {
           if (FC.voiceAvatarReady && FC.voiceHead) FC.voiceHead.lookAtCamera(500);
         }, 1000);
+        // Make Three.js canvas background transparent
+        if (FC.voiceHead.renderer) {
+          FC.voiceHead.renderer.setClearColor(0x000000, 0);
+        }
       }).catch(function(err) {
         console.error('FloatingChat avatar error:', err);
-        if (loading) loading.textContent = 'Erro: ' + err.message;
+        if (loading) loading.textContent = 'Erro';
       });
     }).catch(function(err) {
       console.error('FloatingChat TalkingHead import error:', err);
