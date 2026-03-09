@@ -160,7 +160,7 @@
 /* Avatar view area */
 .fchat-avatar-area {
   width: 100%;
-  height: 160px;
+  height: 200px;
   background: #111;
   flex-shrink: 0;
   position: relative;
