@@ -1615,6 +1615,81 @@ app.delete('/api/gemini-sessions/history', checkToken, (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── Google Workspace CLI ───
+
+app.get('/api/gws-cli/status', checkToken, async (req, res) => {
+  try {
+    const status = await gwsCli.getStatus();
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/gws-cli/install', checkToken, async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  try {
+    await gwsCli.install((text) => {
+      res.write(`data: ${JSON.stringify({ type: 'progress', text })}\n\n`);
+    });
+    const status = await gwsCli.getStatus();
+    res.write(`data: ${JSON.stringify({ type: 'done', ...status })}\n\n`);
+  } catch (err) {
+    res.write(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);
+  }
+  res.end();
+});
+
+app.post('/api/gws-cli/auth', checkToken, (req, res) => {
+  try {
+    gwsCli.invalidateCache();
+    const session = ptyManager.spawnInteractive('gws', ['auth', 'login'], process.cwd());
+    res.json({ sessionId: session.id, pid: session.pid });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GWS Sessions
+
+app.get('/api/gws-sessions', checkToken, (req, res) => {
+  res.json(ptyManager.getActiveGwsSessions());
+});
+
+app.get('/api/gws-sessions/history', checkToken, (req, res) => {
+  res.json(storage.getGwsSessions());
+});
+
+app.post('/api/gws-sessions/launch', checkToken, (req, res) => {
+  const { prompt, workingDirectory } = req.body;
+  try {
+    const session = ptyManager.launchGwsSession({ prompt, workingDirectory });
+    res.status(201).json(session);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/gws-sessions/:id/stop', checkToken, (req, res) => {
+  const stopped = ptyManager.stopGwsSession(req.params.id);
+  if (!stopped) return res.status(404).json({ error: 'Session not found or already stopped' });
+  res.json({ ok: true });
+});
+
+app.get('/api/gws-sessions/:id/output', checkToken, (req, res) => {
+  const output = ptyManager.getSessionOutput(req.params.id);
+  res.json({ output });
+});
+
+app.delete('/api/gws-sessions/history', checkToken, (req, res) => {
+  storage.clearGwsHistory();
+  res.json({ ok: true });
+});
+
 // ─── Claude Code CLI API ───
 
 app.get('/api/claude-cli/status', checkToken, async (req, res) => {
