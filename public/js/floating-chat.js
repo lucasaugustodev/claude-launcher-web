@@ -163,6 +163,7 @@
         var alive = sessions.some(function(s) { return s.id === saved; });
         if (alive) {
           FC.sessionId = saved;
+          loadMessages();
           FC.status = 'input_wait';
           updateStatus();
           registerHandlers(saved);
