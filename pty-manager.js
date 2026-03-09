@@ -654,6 +654,18 @@ function sendStreamJsonInput(sessionId, message) {
   // Claude Code stream-json expects: {"type":"user","message":{"role":"user","content":"..."}}
   const json = JSON.stringify({ type: 'user', message: { role: 'user', content: message } }) + '\n';
   handle.childProcess.stdin.write(json);
+
+  // Store a synthetic user_input event in the output buffer so it replays on re-attach
+  const userEvent = JSON.stringify({ type: 'user_input', text: message }) + '\n';
+  handle.output += userEvent;
+  if (handle.output.length > 500000) {
+    handle.output = handle.output.slice(-400000);
+  }
+  // Broadcast to listeners so all attached clients see it
+  for (const fn of handle.listeners) {
+    fn({ type: 'stream-json', sessionId, event: { type: 'user_input', text: message } });
+  }
+
   return true;
 }
 

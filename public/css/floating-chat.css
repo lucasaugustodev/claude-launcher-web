@@ -112,8 +112,13 @@
   flex-shrink: 0;
   overflow: hidden;
   position: relative;
-  /* transparent background — Three.js canvas shows through */
   background: transparent;
+}
+
+.fchat-header-avatar canvas {
+  width: 100% !important;
+  height: 100% !important;
+  background: transparent !important;
 }
 
 .fchat-header-info {
