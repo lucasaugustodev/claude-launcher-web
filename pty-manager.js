@@ -933,6 +933,102 @@ function cleanupOrphanedGemini() {
   return cleaned;
 }
 
+// ─── GWS Sessions ───
+
+function launchGwsSession({ prompt, workingDirectory } = {}) {
+  const sessionId = uuid();
+  let cwd = workingDirectory || process.cwd();
+  if (!fs.existsSync(cwd)) {
+    const fallbacks = process.platform === 'win32'
+      ? ['C:\\Users\\Administrator', 'C:\\']
+      : [os.homedir(), '/tmp'];
+    cwd = fallbacks.find(d => fs.existsSync(d)) || process.cwd();
+  }
+  const env = { ...process.env, TERM: 'xterm-256color', FORCE_COLOR: '1' };
+
+  let shell, args;
+  if (process.platform === 'win32') {
+    shell = 'cmd.exe';
+    args = prompt ? ['/c', 'gws', prompt] : ['/c', 'gws'];
+  } else {
+    shell = 'gws';
+    args = prompt ? [prompt] : [];
+  }
+
+  console.log(`[GWS] Launching session: cwd=${cwd}, prompt=${prompt ? prompt.slice(0, 60) : '(interactive)'}`);
+
+  const handle = spawnSession(sessionId, { shell, args }, cwd, env, storage.updateGwsSession.bind(storage));
+  handle.type = 'gws';
+
+  const session = {
+    id: sessionId,
+    prompt: prompt || null,
+    workingDirectory: cwd,
+    startedAt: handle.startedAt,
+    endedAt: null,
+    durationSeconds: null,
+    exitCode: null,
+    status: 'running',
+    pid: handle.pid,
+  };
+
+  storage.addGwsSession(session);
+  return session;
+}
+
+function stopGwsSession(sessionId) {
+  const handle = handles.get(sessionId);
+  if (!handle || handle.exited) return false;
+
+  try {
+    handle.pty.kill();
+  } catch {
+    try {
+      const { execSync } = require('child_process');
+      execSync(`taskkill /F /T /PID ${handle.pid}`, { stdio: 'ignore' });
+    } catch {}
+  }
+
+  storage.updateGwsSession(sessionId, {
+    status: 'stopped',
+    endedAt: new Date().toISOString(),
+    durationSeconds: Math.round((Date.now() - new Date(handle.startedAt).getTime()) / 1000),
+  });
+
+  return true;
+}
+
+function getActiveGwsSessions() {
+  const gwsSessions = storage.getGwsSessions().filter(s => s.status === 'running');
+  const active = [];
+  for (const s of gwsSessions) {
+    const handle = handles.get(s.id);
+    if (handle && !handle.exited) {
+      const startMs = new Date(handle.startedAt).getTime();
+      active.push({
+        ...s,
+        elapsedSeconds: Math.round((Date.now() - startMs) / 1000),
+      });
+    }
+  }
+  return active;
+}
+
+function cleanupOrphanedGws() {
+  const sessions = storage.getGwsSessions();
+  let cleaned = 0;
+  for (const s of sessions) {
+    if (s.status === 'running' && !handles.has(s.id)) {
+      storage.updateGwsSession(s.id, {
+        status: 'stopped',
+        endedAt: new Date().toISOString(),
+      });
+      cleaned++;
+    }
+  }
+  return cleaned;
+}
+
 // Spawn an interactive command in a PTY (for gh auth login, cline auth, etc.)
 function spawnInteractive(command, args = [], cwd) {
   const sessionId = uuid();

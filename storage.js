@@ -391,6 +391,7 @@ module.exports = {
   getSessions, saveSessions, getSession, addSession, updateSession, clearHistory,
   getClineSessions, saveClineSessions, getClineSession, addClineSession, updateClineSession, clearClineHistory,
   getGeminiSessions, saveGeminiSessions, getGeminiSession, addGeminiSession, updateGeminiSession, clearGeminiHistory,
+  getGwsSessions, saveGwsSessions, getGwsSession, addGwsSession, updateGwsSession, clearGwsHistory,
   getUsers, saveUsers, findUser, addUser, hasUsers,
   getGitHubConfig, saveGitHubConfig,
   getSchedules, getSchedule, addSchedule, updateSchedule, deleteSchedule, toggleSchedule,
