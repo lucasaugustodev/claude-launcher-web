@@ -1116,4 +1116,5 @@ module.exports = {
   setBroadcast, spawnInteractive,
   launchClineSession, stopClineSession, getActiveClineSessions, cleanupOrphanedCline,
   launchGeminiSession, stopGeminiSession, getActiveGeminiSessions, cleanupOrphanedGemini,
+  launchGwsSession, stopGwsSession, getActiveGwsSessions, cleanupOrphanedGws,
 };
