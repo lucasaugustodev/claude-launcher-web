@@ -265,6 +265,17 @@
         FC.status = 'input_wait';
         updateStatus();
         break;
+
+      case 'user_input':
+        // Replayed user message from buffer — skip if we just sent it
+        if (event.text) {
+          if (FC._lastSentText === event.text) {
+            FC._lastSentText = null;
+          } else {
+            addMessage('user', event.text);
+          }
+        }
+        break;
     }
   }
 
