@@ -1499,6 +1499,14 @@ function ConfigPage() {
       authFn=${() => API.startClineCLIAuth()}
       authLabel="Login"
     />
+    <${ConfigToolCard}
+      name="Google Workspace CLI"
+      icon="\uD83C\uDFE2"
+      statusFn=${() => API.getGwsCLIStatus()}
+      installFn=${(cb) => API.installGwsCLI(cb)}
+      authFn=${() => API.startGwsCLIAuth()}
+      authLabel="Login"
+    />
   `;
 }
 
