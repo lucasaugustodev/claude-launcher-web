@@ -65,13 +65,26 @@ function checkAuthAsync() {
   return new Promise((resolve) => {
     const sync = checkAuth();
     if (sync) return resolve(sync);
-    // Quick test: run gws auth status to see if auth is configured
+    // Parse gws auth status JSON output
     execFile('gws', ['auth', 'status'], { timeout: 10000, shell: true }, (err, stdout, stderr) => {
+      if (err) return resolve({ authenticated: false, user: null });
       const output = ((stdout || '') + (stderr || '')).trim();
-      if (err || output.includes('not authenticated') || output.includes('no credentials') || output.includes('error')) {
-        resolve({ authenticated: false, user: null });
-      } else {
-        resolve({ authenticated: true, user: 'Google OAuth' });
+      try {
+        const status = JSON.parse(output);
+        if (status.auth_method && status.auth_method !== 'none' && status.storage !== 'none') {
+          resolve({ authenticated: true, user: status.auth_method });
+        } else {
+          resolve({ authenticated: false, user: null });
+        }
+      } catch {
+        // Fallback: check for obvious unauthenticated indicators
+        if (output.includes('"auth_method": "none"') || output.includes('"storage": "none"')) {
+          resolve({ authenticated: false, user: null });
+        } else if (output.includes('not authenticated') || output.includes('no credentials')) {
+          resolve({ authenticated: false, user: null });
+        } else {
+          resolve({ authenticated: false, user: null });
+        }
       }
     });
   });
