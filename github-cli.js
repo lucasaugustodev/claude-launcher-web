@@ -2,10 +2,27 @@ const { execFile, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+// GitHub CLI installs to these locations on Windows (MSI installer)
+const GH_PATHS_WIN = [
+  'C:\\Program Files\\GitHub CLI',
+  'C:\\Program Files (x86)\\GitHub CLI',
+];
+
+// Ensure GitHub CLI dir is in PATH for detection
+function getEnvWithGhPath() {
+  if (process.platform !== 'win32') return process.env;
+  const currentPath = process.env.PATH || process.env.Path || '';
+  const missing = GH_PATHS_WIN.filter(p => {
+    try { return fs.existsSync(p) && !currentPath.toLowerCase().includes(p.toLowerCase()); } catch { return false; }
+  });
+  if (missing.length === 0) return process.env;
+  return { ...process.env, PATH: missing.join(';') + ';' + currentPath };
+}
+
 // ─── Check if gh CLI is installed ───
 function checkInstalled() {
   return new Promise((resolve) => {
-    execFile('gh', ['--version'], { timeout: 5000, shell: true }, (err, stdout) => {
+    execFile('gh', ['--version'], { timeout: 5000, shell: true, env: getEnvWithGhPath() }, (err, stdout) => {
       if (err) return resolve({ installed: false, version: null });
       const match = stdout.match(/gh version ([\d.]+)/);
       resolve({ installed: true, version: match ? match[1] : stdout.trim() });
@@ -16,7 +33,7 @@ function checkInstalled() {
 // ─── Check if gh CLI is authenticated ───
 function checkAuth() {
   return new Promise((resolve) => {
-    execFile('gh', ['auth', 'status'], { timeout: 10000, shell: true }, (err, stdout, stderr) => {
+    execFile('gh', ['auth', 'status'], { timeout: 10000, shell: true, env: getEnvWithGhPath() }, (err, stdout, stderr) => {
       const output = (stdout || '') + (stderr || '');
       // gh auth status outputs to stderr
       if (output.includes('Logged in to')) {
