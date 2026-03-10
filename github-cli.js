@@ -16,7 +16,7 @@ function checkInstalled() {
 // ─── Check if gh CLI is authenticated ───
 function checkAuth() {
   return new Promise((resolve) => {
-    execFile('gh', ['auth', 'status'], { timeout: 10000 }, (err, stdout, stderr) => {
+    execFile('gh', ['auth', 'status'], { timeout: 10000, shell: true }, (err, stdout, stderr) => {
       const output = (stdout || '') + (stderr || '');
       // gh auth status outputs to stderr
       if (output.includes('Logged in to')) {
