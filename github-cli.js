@@ -5,7 +5,7 @@ const path = require('path');
 // ─── Check if gh CLI is installed ───
 function checkInstalled() {
   return new Promise((resolve) => {
-    execFile('gh', ['--version'], { timeout: 5000 }, (err, stdout) => {
+    execFile('gh', ['--version'], { timeout: 5000, shell: true }, (err, stdout) => {
       if (err) return resolve({ installed: false, version: null });
       const match = stdout.match(/gh version ([\d.]+)/);
       resolve({ installed: true, version: match ? match[1] : stdout.trim() });
