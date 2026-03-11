@@ -629,6 +629,13 @@ const API = {
     return this.fetch('api/whatsapp/link', { method: 'POST' });
   },
 
+  setupWhatsApp(phone) {
+    return this.fetch('api/whatsapp/setup', {
+      method: 'POST',
+      body: JSON.stringify({ phone }),
+    });
+  },
+
   getWhatsAppLinkStatus(code) {
     return this.fetch('api/whatsapp/link-status?code=' + encodeURIComponent(code));
   },
