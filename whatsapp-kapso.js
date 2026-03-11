@@ -47,7 +47,8 @@ async function pollForCode(code, timeoutMs = 10 * 60 * 1000) {
       const messages = await getIncomingMessages();
       if (messages && messages.length > 0) {
         for (const msg of messages) {
-          const body = (msg.text || msg.body || '').trim().toUpperCase();
+          const rawText = msg.text;
+          const body = (typeof rawText === 'string' ? rawText : (rawText && rawText.body) || msg.body || '').trim().toUpperCase();
           if (body.includes(code)) {
             const phone = msg.from || msg.sender;
             if (phone) {
