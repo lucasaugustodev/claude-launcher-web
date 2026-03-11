@@ -1593,6 +1593,7 @@ function ContentRouter({ page }) {
 function App() {
   const [authState, setAuthState] = useState('loading');
   const [page, setPage] = useState('profiles');
+  const cameFromOnboarding = useRef(false);
 
   // Boot: check auth status
   useEffect(() => {
@@ -1609,11 +1610,23 @@ function App() {
     API.connectWS();
     if (authState === 'app') {
       document.getElementById('sidebar').style.display = 'flex';
+      // Show floating chat bubble
+      if (window.FloatingChat) window.FloatingChat.show();
       updateActiveCount();
       const interval = setInterval(updateActiveCount, 10000);
+
+      // First time entering app from onboarding: auto-install marketplace + open chat
+      if (cameFromOnboarding.current) {
+        cameFromOnboarding.current = false;
+        autoInstallMarketplace();
+        setTimeout(() => { if (window.FloatingChat) window.FloatingChat.open(); }, 1500);
+      }
+
       return () => clearInterval(interval);
     } else {
       document.getElementById('sidebar').style.display = 'none';
+      // Hide floating chat during onboarding
+      if (window.FloatingChat) window.FloatingChat.hide();
     }
   }, [authState]);
 
