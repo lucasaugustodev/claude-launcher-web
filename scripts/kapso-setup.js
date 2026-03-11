@@ -387,6 +387,14 @@ async function run(phoneNumber) {
       console.log('[Nav] API keys link not found in sidebar');
     }
 
+    // Capture any data we found
+    let apiKey = null;
+    try {
+      const finalText = await page.textContent('body').catch(() => '');
+      const km = finalText.match(/([a-f0-9]{64})/);
+      if (km) apiKey = km[1];
+    } catch {}
+
     // Save credentials
     const credentials = {
       email: mail.email,
@@ -394,7 +402,10 @@ async function run(phoneNumber) {
       mailTmToken: mail.token,
       createdAt: new Date().toISOString(),
       phone,
+      projectId: projectId || null,
+      apiKey: apiKey || null,
       kapsoUrl: KAPSO_URL,
+      sandboxNumber: '+56920403095',
     };
 
     const fs = require('fs');
