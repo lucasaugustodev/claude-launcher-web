@@ -331,6 +331,7 @@ function OnboardingPage({ onDone }) {
         authFn=${() => API.startGwsCLIAuth()}
         authLabel="Login"
       />
+      <${WhatsAppCard} />
 
       <button
         class="btn ${claudeReady ? 'btn-primary' : ''}"
