@@ -1407,23 +1407,28 @@ function ConfigToolCard({ name, icon, statusFn, installFn, authFn, authLabel, hi
 
   useEffect(() => { load(); }, [load]);
 
+  const installFnRef = useRef(installFn);
+  installFnRef.current = installFn;
+  const authFnRef = useRef(authFn);
+  authFnRef.current = authFn;
+
   const handleInstall = useCallback(async () => {
     setInstalling(true);
     setShowLog(true);
     setInstallLog('');
     try {
-      await installFn((text) => setInstallLog(prev => prev + text));
+      await installFnRef.current((text) => setInstallLog(prev => prev + text));
       showToast(name + ' instalado!');
       await load();
     } catch (err) {
       showToast('Falha: ' + err.message, 'error');
     }
     setInstalling(false);
-  }, [installFn, name, load]);
+  }, [name, load]);
 
   const handleAuth = useCallback(async () => {
     try {
-      const result = await authFn();
+      const result = await authFnRef.current();
       TerminalManager.open(result.sessionId);
       document.getElementById('terminal-title').textContent = name + ' - Login';
 
