@@ -1608,6 +1608,7 @@ app.post('/api/whatsapp/link', checkToken, (req, res) => {
   whatsappKapso.pollForCode(code).then(result => {
     if (result.success) {
       console.log(`[WhatsApp] Linked to ${result.phoneNumber}`);
+      startWhatsappBridge();
       // Notify via WebSocket
       wss.clients.forEach(ws => {
         if (ws.readyState === ws.OPEN) {
