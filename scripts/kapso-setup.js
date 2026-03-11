@@ -285,7 +285,26 @@ async function run(phoneNumber) {
     // Step 6: Start new sandbox session
     console.log('\n=== Step 6: Start sandbox session ===');
 
-    // Click "+ Start testing session" button specifically
+    // Check if this phone already has a session (shown in the table)
+    const existingPhone = page.locator('td, tr').filter({ hasText: phone.replace('+', '') }).first();
+    if (await existingPhone.isVisible({ timeout: 3000 }).catch(() => false)) {
+      console.log('[Sandbox] Phone already has a session, trying to delete it first');
+      // Click delete action for this session
+      const deleteBtn = page.locator('button[aria-label*="delete"], button[title*="delete"], [data-action="delete"]').first();
+      if (await deleteBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await deleteBtn.click();
+        await page.waitForTimeout(1000);
+        // Confirm deletion if dialog appears
+        const confirmBtn = page.locator('button').filter({ hasText: /delete|confirm|yes/i }).last();
+        if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await confirmBtn.click();
+          await page.waitForTimeout(2000);
+        }
+        console.log('[Sandbox] Deleted existing session');
+      }
+    }
+
+    // Click "+ Start testing session" button
     const startTestBtn = page.locator('button, a').filter({ hasText: /start testing session/i }).first();
     if (await startTestBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
       await startTestBtn.click();
@@ -298,8 +317,7 @@ async function run(phoneNumber) {
     await page.screenshot({ path: 'kapso-step10-after-start.png' });
 
     // Fill phone number in the modal dialog
-    // The input has placeholder "+1234567890" - look for it in the dialog
-    const phoneInput = page.locator('[role="dialog"] input, .modal input, [data-state="open"] input').first();
+    const phoneInput = page.locator('[role="dialog"] input, [data-state="open"] input').first();
     if (await phoneInput.isVisible({ timeout: 5000 }).catch(() => false)) {
       await phoneInput.clear();
       await phoneInput.fill(phone);
@@ -308,24 +326,69 @@ async function run(phoneNumber) {
       await page.screenshot({ path: 'kapso-step10b-phone-filled.png' });
 
       // Click "Create" button inside the dialog
-      const createSessionBtn = page.locator('[role="dialog"] button, .modal button').filter({ hasText: /create/i }).first();
+      const createSessionBtn = page.locator('[role="dialog"] button, [data-state="open"] button').filter({ hasText: /create/i }).first();
       if (await createSessionBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
         await createSessionBtn.click();
-        await page.waitForTimeout(5000);
+        await page.waitForTimeout(3000);
         console.log('[Sandbox] Clicked Create');
       }
-    } else {
-      // Fallback: try any visible input on page
-      const anyInput = page.locator('input[placeholder*="1234"]').first();
-      if (await anyInput.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await anyInput.clear();
-        await anyInput.fill(phone);
-        console.log(`[Sandbox] Phone filled (fallback): ${phone}`);
-        await page.locator('button').filter({ hasText: /create/i }).last().click();
-        await page.waitForTimeout(5000);
-      } else {
-        console.log('[Sandbox] No phone input found in modal');
+
+      // Check for error message (e.g., "already has an active sandbox session")
+      const dialogText = await page.evaluate(() => {
+        const dialog = document.querySelector('[role="dialog"], [data-state="open"]');
+        return dialog ? dialog.innerText : '';
+      }).catch(() => '');
+
+      if (dialogText.includes('already has') || dialogText.includes('Delete it first')) {
+        console.log('[Sandbox] Phone already registered, closing dialog and trying to delete');
+        // Close the dialog
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(1000);
+
+        // Find and click the delete icon/button for this phone in the table
+        // Look for a trash icon or delete button in the row with this phone number
+        const rows = page.locator('tr, [role="row"]');
+        const rowCount = await rows.count();
+        for (let i = 0; i < rowCount; i++) {
+          const rowText = await rows.nth(i).textContent().catch(() => '');
+          if (rowText.includes(phone.replace('+', ''))) {
+            const deleteIcon = rows.nth(i).locator('button, [role="button"], svg').last();
+            if (await deleteIcon.isVisible({ timeout: 2000 }).catch(() => false)) {
+              await deleteIcon.click();
+              await page.waitForTimeout(1000);
+              // Confirm deletion
+              const confirmDel = page.locator('button').filter({ hasText: /delete|confirm|remove/i }).last();
+              if (await confirmDel.isVisible({ timeout: 3000 }).catch(() => false)) {
+                await confirmDel.click();
+                await page.waitForTimeout(2000);
+                console.log('[Sandbox] Deleted old session');
+              }
+              break;
+            }
+          }
+        }
+
+        // Try creating again
+        await page.screenshot({ path: 'kapso-step10c-after-delete.png' });
+        const startTestBtn2 = page.locator('button, a').filter({ hasText: /start testing session/i }).first();
+        if (await startTestBtn2.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await startTestBtn2.click();
+          await page.waitForTimeout(2000);
+          const phoneInput2 = page.locator('[role="dialog"] input, [data-state="open"] input').first();
+          if (await phoneInput2.isVisible({ timeout: 5000 }).catch(() => false)) {
+            await phoneInput2.clear();
+            await phoneInput2.fill(phone);
+            const createBtn2 = page.locator('[role="dialog"] button, [data-state="open"] button').filter({ hasText: /create/i }).first();
+            if (await createBtn2.isVisible({ timeout: 3000 }).catch(() => false)) {
+              await createBtn2.click();
+              await page.waitForTimeout(5000);
+              console.log('[Sandbox] Re-created session');
+            }
+          }
+        }
       }
+    } else {
+      console.log('[Sandbox] No phone input found in modal');
     }
 
     await page.screenshot({ path: 'kapso-step10c-session-result.png' });
