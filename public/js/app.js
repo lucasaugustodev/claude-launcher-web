@@ -1459,7 +1459,7 @@ function ConfigToolCard({ name, icon, statusFn, installFn, authFn, authLabel, hi
     } catch (err) {
       showToast('Erro: ' + err.message, 'error');
     }
-  }, [authFn, name, load]);
+  }, [name, load]);
 
   if (!status) {
     return html`
