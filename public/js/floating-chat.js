@@ -739,6 +739,7 @@
       return;
     }
     buildWidget();
+    initWhatsAppBridge();
     // Start hidden — App will call FloatingChat.show() when ready
     hideBubble();
   }
