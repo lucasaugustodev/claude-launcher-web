@@ -178,7 +178,9 @@ async function run(phoneNumber) {
     const afterConfirmUrl = page.url();
     console.log(`[Playwright] After confirm URL: ${afterConfirmUrl}`);
 
-    if (!afterConfirmUrl.includes('dashboard') && !afterConfirmUrl.includes('/app')) {
+    // Check if we need to login (not already on dashboard)
+    const needsLogin = afterConfirmUrl.includes('sign_in') || afterConfirmUrl.includes('login');
+    if (needsLogin) {
       try {
         // Go to login page fresh
         await page.goto(`${KAPSO_URL}/users/sign_in`, { waitUntil: 'networkidle', timeout: 30000 });
