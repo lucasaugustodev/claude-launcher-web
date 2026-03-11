@@ -420,6 +420,7 @@ async function run(phoneNumber) {
       phone,
       projectId: projectId || null,
       apiKey: apiKey || null,
+      activationCode: activationCode || null,
       kapsoUrl: KAPSO_URL,
       sandboxNumber: '+56920403095',
     };
