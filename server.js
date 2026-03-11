@@ -1649,13 +1649,21 @@ app.post('/api/whatsapp/setup', checkToken, async (req, res) => {
 
     kapsoSetupRunning = false;
 
-    if (credentials && credentials.activationCode) {
-      // Update whatsapp-kapso module with new API key if we got one
+    if (credentials && credentials.activationCode === '__DUPLICATE__') {
+      // Phone number already in use in another Kapso project
+      wss.clients.forEach(ws => {
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'whatsapp:setup-error',
+            error: 'Esse numero ja esta vinculado em outro projeto Kapso. Use outro numero.',
+          }));
+        }
+      });
+    } else if (credentials && credentials.activationCode) {
       if (credentials.apiKey) {
         console.log(`[WhatsApp Setup] Got API key: ${credentials.apiKey.slice(0, 8)}...`);
       }
 
-      // Notify frontend with activation code
       wss.clients.forEach(ws => {
         if (ws.readyState === ws.OPEN) {
           ws.send(JSON.stringify({
