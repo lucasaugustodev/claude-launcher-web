@@ -1875,8 +1875,9 @@ function App() {
     API.connectWS();
     if (authState === 'app') {
       document.getElementById('sidebar').style.display = 'flex';
-      // Show floating chat bubble
-      if (window.FloatingChat) window.FloatingChat.show();
+      // Show floating chat bubble (retry in case it hasn't initialized yet)
+      const showChat = () => { if (window.FloatingChat) window.FloatingChat.show(); else setTimeout(showChat, 300); };
+      showChat();
       updateActiveCount();
       const interval = setInterval(updateActiveCount, 10000);
 
