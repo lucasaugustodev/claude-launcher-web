@@ -1621,6 +1621,75 @@ app.post('/api/whatsapp/link', checkToken, (req, res) => {
   });
 });
 
+// Kapso automated setup: create account, sandbox session, API key
+let kapsoSetupRunning = false;
+app.post('/api/whatsapp/setup', checkToken, async (req, res) => {
+  const { phone } = req.body;
+  if (!phone) return res.status(400).json({ error: 'phone required' });
+  if (kapsoSetupRunning) return res.status(409).json({ error: 'Setup already running' });
+
+  kapsoSetupRunning = true;
+  console.log(`[WhatsApp Setup] Starting for ${phone}`);
+
+  // Notify progress via WS
+  const notifyProgress = (step, message) => {
+    wss.clients.forEach(ws => {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'whatsapp:setup-progress', step, message }));
+      }
+    });
+  };
+
+  // Run setup in background, respond immediately
+  res.json({ status: 'started', message: 'Kapso setup iniciado...' });
+
+  try {
+    const kapsoSetup = require('./scripts/kapso-setup');
+    const credentials = await kapsoSetup.run(phone);
+
+    kapsoSetupRunning = false;
+
+    if (credentials && credentials.activationCode) {
+      // Update whatsapp-kapso module with new API key if we got one
+      if (credentials.apiKey) {
+        console.log(`[WhatsApp Setup] Got API key: ${credentials.apiKey.slice(0, 8)}...`);
+      }
+
+      // Notify frontend with activation code
+      wss.clients.forEach(ws => {
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'whatsapp:setup-complete',
+            activationCode: credentials.activationCode,
+            sandboxNumber: credentials.sandboxNumber || '+56920403095',
+            apiKey: credentials.apiKey,
+            projectId: credentials.projectId,
+            email: credentials.email,
+          }));
+        }
+      });
+      console.log(`[WhatsApp Setup] Complete! Code: ${credentials.activationCode}`);
+    } else {
+      wss.clients.forEach(ws => {
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'whatsapp:setup-error',
+            error: 'Setup completou mas nao obteve codigo de ativacao',
+          }));
+        }
+      });
+    }
+  } catch (err) {
+    kapsoSetupRunning = false;
+    console.error('[WhatsApp Setup] Error:', err.message);
+    wss.clients.forEach(ws => {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'whatsapp:setup-error', error: err.message }));
+      }
+    });
+  }
+});
+
 app.get('/api/whatsapp/link-status', checkToken, (req, res) => {
   const { code } = req.query;
   if (!code) return res.status(400).json({ error: 'code required' });
