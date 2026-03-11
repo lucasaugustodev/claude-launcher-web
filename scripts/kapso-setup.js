@@ -229,112 +229,131 @@ async function run(phoneNumber) {
       throw new Error('Login failed');
     }
 
-    // Step 5: Navigate to Sandbox Testing
+    // Close "Name your project" modal if present
+    const laterBtn = page.locator('button').filter({ hasText: /later/i }).first();
+    if (await laterBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await laterBtn.click();
+      await page.waitForTimeout(1000);
+      console.log('[Dashboard] Closed project naming modal');
+    }
+
+    // Extract project ID from URL for building correct URLs
+    const dashUrl = page.url();
+    const projectMatch = dashUrl.match(/projects\/([^/]+)/);
+    const projectId = projectMatch ? projectMatch[1] : null;
+    console.log(`[Dashboard] Project ID: ${projectId}`);
+
+    await page.screenshot({ path: 'kapso-step07-dashboard.png' });
+
+    // Step 5: Navigate to Phone Numbers > Sandbox Testing via sidebar
     console.log('\n=== Step 5: Navigate to Sandbox Testing ===');
 
-    // Try direct URL first
-    await page.goto(`${KAPSO_URL}/phone_numbers/sandbox`, { waitUntil: 'networkidle', timeout: 15000 }).catch(() => {});
-    await page.waitForTimeout(2000);
-    await page.screenshot({ path: 'kapso-step07-sandbox-direct.png' });
-    console.log(`[Playwright] Sandbox direct URL: ${page.url()}`);
+    // Click "Phone numbers" in sidebar to expand submenu
+    const phoneNumbersLink = page.locator('a, button').filter({ hasText: /phone\s*numbers/i }).first();
+    if (await phoneNumbersLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await phoneNumbersLink.click();
+      await page.waitForTimeout(1500);
+      console.log('[Nav] Clicked Phone numbers');
+    }
 
-    // If direct URL didn't work, navigate via sidebar
-    if (!page.url().includes('sandbox')) {
-      // Try sidebar navigation
-      const phoneNumbersLink = page.locator('a, button, [role="menuitem"]').filter({ hasText: /phone.?number/i }).first();
-      if (await phoneNumbersLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await phoneNumbersLink.click();
-        await page.waitForTimeout(2000);
-      }
+    await page.screenshot({ path: 'kapso-step08-phone-numbers.png' });
 
-      const sandboxLink = page.locator('a, button, [role="menuitem"]').filter({ hasText: /sandbox/i }).first();
-      if (await sandboxLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await sandboxLink.click();
+    // Look for "Sandbox testing" submenu item
+    const sandboxLink = page.locator('a').filter({ hasText: /sandbox/i }).first();
+    if (await sandboxLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await sandboxLink.click();
+      await page.waitForTimeout(3000);
+      console.log('[Nav] Clicked Sandbox testing');
+    } else {
+      console.log('[Nav] Sandbox link not found, trying "Add number"');
+      // Maybe it's under "Add number" > "Start" for sandbox
+      const addNumberLink = page.locator('a').filter({ hasText: /add\s*number/i }).first();
+      if (await addNumberLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await addNumberLink.click();
         await page.waitForTimeout(2000);
       }
     }
 
-    await page.screenshot({ path: 'kapso-step08-sandbox-page.png' });
-    console.log(`[Playwright] Sandbox page URL: ${page.url()}`);
+    await page.screenshot({ path: 'kapso-step09-sandbox-page.png' });
+    console.log(`[Nav] Sandbox URL: ${page.url()}`);
 
-    // Dump page text for debugging
+    // Dump page content
     const sandboxText = await page.textContent('body').catch(() => '');
-    console.log(`[Sandbox] Page text preview: ${sandboxText.slice(0, 500)}`);
+    console.log(`[Sandbox] Page preview: ${sandboxText.replace(/\s+/g, ' ').slice(0, 500)}`);
 
-    // Step 6: Start new session
+    // Step 6: Start new sandbox session
     console.log('\n=== Step 6: Start sandbox session ===');
 
-    const startBtn = page.locator('button, a').filter({ hasText: /start.*session|new.*session|add.*number|add.*phone/i }).first();
+    // Look for "Start new session" or any start/add button
+    const startBtn = page.locator('button, a').filter({ hasText: /start|new.*session|add.*number|add.*phone/i }).first();
     if (await startBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
       await startBtn.click();
       await page.waitForTimeout(2000);
-      console.log('[Playwright] Clicked start session');
+      console.log('[Sandbox] Clicked start/add button');
     }
 
-    // Fill phone number
+    // Fill phone number if there's an input
     const phoneInput = page.locator('input[type="tel"], input[name*="phone"], input[placeholder*="phone" i], input[placeholder*="number" i]').first();
     if (await phoneInput.isVisible({ timeout: 5000 }).catch(() => false)) {
       await phoneInput.fill(phone);
-      console.log(`[Playwright] Phone filled: ${phone}`);
+      console.log(`[Sandbox] Phone filled: ${phone}`);
+
+      // Submit
+      const submitPhoneBtn = page.locator('button').filter({ hasText: /create|send|submit|start|add|save/i }).first();
+      if (await submitPhoneBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await submitPhoneBtn.click();
+        await page.waitForTimeout(3000);
+        console.log('[Sandbox] Submitted phone');
+      }
     }
 
-    await page.screenshot({ path: 'kapso-step09-phone-filled.png' });
+    await page.screenshot({ path: 'kapso-step10-session-result.png' });
+    const sessionText = await page.textContent('body').catch(() => '');
+    console.log(`[Session] Result: ${sessionText.replace(/\s+/g, ' ').slice(0, 500)}`);
 
-    // Submit
-    const createBtn = page.locator('button').filter({ hasText: /create|send|submit|start|add/i }).first();
-    if (await createBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await createBtn.click();
-      await page.waitForTimeout(3000);
-    }
-
-    await page.screenshot({ path: 'kapso-step10-session-created.png' });
-    console.log('[Playwright] Session creation attempted');
-
-    // Check for sandbox verification code on page
-    const pageText2 = await page.textContent('body').catch(() => '');
-    console.log(`[Session] Page text: ${pageText2.slice(0, 500)}`);
-    const codeMatch = pageText2.match(/code[:\s]+(\w{4,8})/i);
+    // Look for sandbox code
+    const codeMatch = sessionText.match(/code[:\s]+(\w{4,8})/i);
     if (codeMatch) {
       console.log(`[Sandbox] Verification code: ${codeMatch[1]}`);
     }
 
-    // Step 7: Create API Key
+    // Step 7: Create API Key via sidebar
     console.log('\n=== Step 7: Create API Key ===');
 
-    // Try direct URL
-    await page.goto(`${KAPSO_URL}/api_keys`, { waitUntil: 'networkidle', timeout: 15000 }).catch(() => {});
-    await page.waitForTimeout(2000);
-    await page.screenshot({ path: 'kapso-step11-apikeys-page.png' });
+    const apiKeysLink = page.locator('a').filter({ hasText: /api\s*keys/i }).first();
+    if (await apiKeysLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await apiKeysLink.click();
+      await page.waitForTimeout(3000);
+      console.log('[Nav] Clicked API keys');
 
-    // If direct URL didn't work, try sidebar
-    if (!page.url().includes('api_key')) {
-      const apiKeysLink = page.locator('a, button, [role="menuitem"]').filter({ hasText: /api.?key/i }).first();
-      if (await apiKeysLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await apiKeysLink.click();
+      await page.screenshot({ path: 'kapso-step11-apikeys-page.png' });
+
+      const createKeyBtn = page.locator('button').filter({ hasText: /create|new|generate/i }).first();
+      if (await createKeyBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await createKeyBtn.click();
         await page.waitForTimeout(2000);
-      }
-    }
 
-    const createKeyBtn = page.locator('button').filter({ hasText: /create|new|generate/i }).first();
-    if (await createKeyBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await createKeyBtn.click();
-      await page.waitForTimeout(2000);
-
-      const keyNameInput = page.locator('input[name*="name"], input[placeholder*="name" i]').first();
-      if (await keyNameInput.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await keyNameInput.fill('hiveclip-auto');
-        const saveBtn = page.locator('button').filter({ hasText: /create|save|generate/i }).first();
-        await saveBtn.click();
-        await page.waitForTimeout(3000);
+        const keyNameInput = page.locator('input[name*="name"], input[placeholder*="name" i]').first();
+        if (await keyNameInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await keyNameInput.fill('hiveclip-auto');
+          const saveBtn = page.locator('button').filter({ hasText: /create|save|generate/i }).first();
+          await saveBtn.click();
+          await page.waitForTimeout(3000);
+        }
       }
 
       await page.screenshot({ path: 'kapso-step12-apikey-created.png' });
 
-      const keyText = await page.textContent('body').catch(() => '');
-      const keyMatch = keyText.match(/([a-f0-9]{64})/);
+      // Try to capture the API key from the page
+      const keyPageText = await page.textContent('body').catch(() => '');
+      const keyMatch = keyPageText.match(/([a-f0-9]{64})/);
       if (keyMatch) {
         console.log(`[API Key] ${keyMatch[1]}`);
+      } else {
+        console.log(`[API Key] Page text: ${keyPageText.replace(/\s+/g, ' ').slice(0, 300)}`);
       }
+    } else {
+      console.log('[Nav] API keys link not found in sidebar');
     }
 
     // Save credentials
