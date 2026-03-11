@@ -502,10 +502,9 @@ const API = {
 
   connectWS() {
     if (this._ws && this._ws.readyState === WebSocket.OPEN) return;
-    if (!this._token) return;
 
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${proto}//${location.host}${_basePath}ws?token=${encodeURIComponent(this._token)}`;
+    const url = `${proto}//${location.host}${_basePath}ws`;
 
     this._ws = new WebSocket(url);
 
