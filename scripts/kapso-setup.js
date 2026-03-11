@@ -391,48 +391,70 @@ async function run(phoneNumber) {
       console.log('[Sandbox] No phone input found in modal');
     }
 
-    await page.screenshot({ path: 'kapso-step10c-session-result.png' });
-
-    // Extract activation code using innerText (visible text only, no script content)
+    // Wait for activation modal to appear (it replaces the "Start testing session" dialog)
     let activationCode = null;
-    try {
-      const visibleText = await page.evaluate(() => document.body.innerText);
-      console.log(`[Session] Visible text: ${visibleText.replace(/\s+/g, ' ').slice(0, 500)}`);
 
-      const codePatterns = [
-        /Activation\s*code:\s*\n?\s*([A-Z0-9]{4,8})/i,
-        /code:\s*\n?\s*([A-Z0-9]{5,6})\b/i,
-      ];
-      for (const pat of codePatterns) {
-        const m = visibleText.match(pat);
-        if (m && m[1].length >= 4 && !/activate|sandbox/i.test(m[1])) {
-          activationCode = m[1];
-          break;
-        }
-      }
-    } catch (e) {
-      console.log(`[Session] innerText error: ${e.message}`);
-    }
+    // Wait up to 10 seconds for the activation modal
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await page.waitForTimeout(2000);
+      await page.screenshot({ path: `kapso-step10c-attempt${attempt}.png` });
 
-    // Fallback: try to find the code element directly in the dialog
-    if (!activationCode) {
+      // Read dialog/modal text specifically
       try {
-        // Look for green-colored text in the modal (activation codes are styled green)
-        const greenTexts = await page.locator('[class*="green"], [class*="emerald"], .text-green-500, .text-emerald-500').allTextContents();
-        for (const t of greenTexts) {
-          const clean = t.trim();
-          if (/^[A-Z0-9]{4,8}$/.test(clean)) {
-            activationCode = clean;
+        const dialogText = await page.evaluate(() => {
+          // Try multiple selectors for the modal
+          const selectors = ['[role="dialog"]', '[data-state="open"]', '.modal', '[class*="Dialog"]'];
+          for (const sel of selectors) {
+            const el = document.querySelector(sel);
+            if (el && el.innerText && el.innerText.includes('ctivat')) return el.innerText;
+          }
+          return document.body.innerText;
+        });
+
+        console.log(`[Session] Dialog text (attempt ${attempt}): ${dialogText.replace(/\s+/g, ' ').slice(0, 400)}`);
+
+        // Try to extract the activation code
+        const codePatterns = [
+          /Activation\s*code:\s*\n?\s*([A-Z0-9]{4,8})/i,
+          /code:\s*\n?\s*([A-Z0-9]{5,6})\b/,  // case sensitive - codes are uppercase
+        ];
+        for (const pat of codePatterns) {
+          const m = dialogText.match(pat);
+          if (m && m[1].length >= 4 && !/Activa|Sandbo/i.test(m[1])) {
+            activationCode = m[1];
             break;
           }
         }
-      } catch {}
+
+        if (activationCode) break;
+
+        // Also check if the dialog has "already has" error
+        if (dialogText.includes('already has') || dialogText.includes('Delete it first')) {
+          console.log('[Sandbox] Duplicate session error detected');
+          break;
+        }
+      } catch (e) {
+        console.log(`[Session] Dialog read error: ${e.message}`);
+      }
     }
+
+    await page.screenshot({ path: 'kapso-step10d-activation.png' });
 
     if (activationCode) {
       console.log(`[Sandbox] Activation code: ${activationCode}`);
     } else {
-      console.log('[Sandbox] Could not extract activation code');
+      console.log('[Sandbox] Could not extract activation code, trying green text fallback');
+      // Last resort: look for any short uppercase string in green-styled elements
+      try {
+        const allText = await page.evaluate(() => {
+          const els = document.querySelectorAll('[class*="green"], [class*="emerald"], [style*="color"]');
+          return Array.from(els).map(e => e.innerText.trim()).filter(t => /^[A-Z0-9]{4,8}$/.test(t));
+        });
+        if (allText.length > 0) {
+          activationCode = allText[0];
+          console.log(`[Sandbox] Found code via green text: ${activationCode}`);
+        }
+      } catch {}
     }
 
     // Close the activation modal
