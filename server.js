@@ -2536,9 +2536,8 @@ app.post('/api/planning/launch', checkToken, (req, res) => {
 // ─── WhatsApp ↔ Agent Bridge (fully server-side) ───
 
 let whatsappBridgeInterval = null;
-let lastWhatsappMsgId = null;
-let whatsappAgentSession = null; // session ID of the agent handling WhatsApp
-let whatsappResponseBuffer = '';
+const processedWhatsappMsgIds = new Set();
+let whatsappAgentSession = null;
 
 function startWhatsappBridge() {
   if (whatsappBridgeInterval) return;
@@ -2554,13 +2553,18 @@ function startWhatsappBridge() {
 
       for (const msg of messages) {
         const msgId = msg.id || msg.message_id;
-        if (!msgId || msgId === lastWhatsappMsgId) continue;
+        if (!msgId || processedWhatsappMsgIds.has(msgId)) continue;
 
         const rawText = msg.text;
         const body = (typeof rawText === 'string' ? rawText : (rawText && rawText.body) || msg.body || '').trim();
         if (!body || body.startsWith('HIVE-')) continue;
 
-        lastWhatsappMsgId = msgId;
+        processedWhatsappMsgIds.add(msgId);
+        // Keep set from growing forever
+        if (processedWhatsappMsgIds.size > 500) {
+          const first = processedWhatsappMsgIds.values().next().value;
+          processedWhatsappMsgIds.delete(first);
+        }
         console.log(`[WhatsApp] Incoming: ${body.slice(0, 80)}`);
 
         // Broadcast to browser clients
@@ -2621,41 +2625,8 @@ async function handleWhatsAppInput(text) {
 }
 
 function registerWhatsAppResponseListener(sessionId) {
-  const handle = ptyManager.getHandle(sessionId);
-  if (!handle) return;
-
   let responseBuffer = '';
   let flushTimer = null;
-
-  const listener = (raw) => {
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed.type !== 'stream-json' || parsed.sessionId !== sessionId) return;
-
-      const event = parsed.event;
-      if (!event) return;
-
-      if (event.type === 'assistant') {
-        const content = event.message && event.message.content;
-        if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === 'text' && block.text) {
-              responseBuffer += block.text;
-              // Debounce flush
-              clearTimeout(flushTimer);
-              flushTimer = setTimeout(() => flushWhatsAppResponse(), 800);
-            }
-          }
-        }
-      }
-
-      if (event.type === 'result') {
-        // Agent turn complete — flush any remaining text
-        clearTimeout(flushTimer);
-        flushWhatsAppResponse();
-      }
-    } catch {}
-  };
 
   function flushWhatsAppResponse() {
     const text = responseBuffer.trim();
@@ -2679,7 +2650,35 @@ function registerWhatsAppResponseListener(sessionId) {
     }
   }
 
-  handle.listeners.add(listener);
+  const listener = (raw) => {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed.type !== 'stream-json' || parsed.sessionId !== sessionId) return;
+
+      const event = parsed.event;
+      if (!event) return;
+
+      if (event.type === 'assistant') {
+        const content = event.message && event.message.content;
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === 'text' && block.text) {
+              responseBuffer += block.text;
+              clearTimeout(flushTimer);
+              flushTimer = setTimeout(() => flushWhatsAppResponse(), 800);
+            }
+          }
+        }
+      }
+
+      if (event.type === 'result') {
+        clearTimeout(flushTimer);
+        flushWhatsAppResponse();
+      }
+    } catch {}
+  };
+
+  ptyManager.addListener(sessionId, listener);
 }
 
 // Start bridge if already linked
