@@ -6,7 +6,7 @@
 const { chromium } = require('playwright');
 
 const LAUNCHER_URL = 'http://localhost:3002';
-const TEST_PHONE = '+556198515960';
+const TEST_PHONE = '+5561999196929';
 
 async function test() {
   console.log('[Test] Starting WhatsApp setup integration test');
