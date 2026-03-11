@@ -1400,16 +1400,20 @@ function WorkflowsPage() {
 
 // ─── Config Page (Preact) ───
 
-function ConfigToolCard({ name, icon, statusFn, installFn, authFn, authLabel, hint }) {
+function ConfigToolCard({ name, icon, statusFn, installFn, authFn, authLabel, hint, onStatusChange }) {
   const [status, setStatus] = useState(null);
   const [installing, setInstalling] = useState(false);
   const [installLog, setInstallLog] = useState('');
   const [showLog, setShowLog] = useState(false);
 
   const load = useCallback(async () => {
-    try { setStatus(await statusFn()); }
+    try {
+      const s = await statusFn();
+      setStatus(s);
+      if (onStatusChange) onStatusChange(s);
+    }
     catch { setStatus({ installed: false }); }
-  }, [statusFn]);
+  }, [statusFn, onStatusChange]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -1432,11 +1436,29 @@ function ConfigToolCard({ name, icon, statusFn, installFn, authFn, authLabel, hi
       const result = await authFn();
       TerminalManager.open(result.sessionId);
       document.getElementById('terminal-title').textContent = name + ' - Login';
+
+      // Reload status when terminal exits OR when user clicks back (overlay hidden)
       const onExit = (msg) => {
         if (msg.sessionId === result.sessionId) {
-          API.off('terminal:exit', onExit);
+          cleanup();
           setTimeout(() => load(), 1000);
         }
+      };
+      // Watch for overlay being hidden (user clicked "Voltar")
+      const overlay = document.getElementById('terminal-overlay');
+      let observer = null;
+      if (overlay) {
+        observer = new MutationObserver(() => {
+          if (overlay.style.display === 'none') {
+            cleanup();
+            setTimeout(() => load(), 500);
+          }
+        });
+        observer.observe(overlay, { attributes: true, attributeFilter: ['style'] });
+      }
+      const cleanup = () => {
+        API.off('terminal:exit', onExit);
+        if (observer) { observer.disconnect(); observer = null; }
       };
       API.on('terminal:exit', onExit);
     } catch (err) {
