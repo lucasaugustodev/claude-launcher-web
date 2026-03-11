@@ -329,39 +329,47 @@ async function run(phoneNumber) {
     }
 
     await page.screenshot({ path: 'kapso-step10c-session-result.png' });
-    const sessionText = await page.textContent('body').catch(() => '');
-    console.log(`[Session] Result: ${sessionText.replace(/\s+/g, ' ').slice(0, 500)}`);
 
-    // Extract activation code from the "Activate WhatsApp Sandbox" modal
-    // The code is a 5-6 char alphanumeric string shown after "Activation code:"
+    // Extract activation code using innerText (visible text only, no script content)
     let activationCode = null;
-    const codePatterns = [
-      /Activation\s*code:\s*([A-Z0-9]{4,8})/i,
-      /code:\s*\n?\s*([A-Z0-9]{4,8})/i,
-    ];
-    for (const pat of codePatterns) {
-      const m = sessionText.match(pat);
-      if (m && m[1].length >= 4 && m[1] !== 'Activate') {
-        activationCode = m[1];
-        break;
+    try {
+      const visibleText = await page.evaluate(() => document.body.innerText);
+      console.log(`[Session] Visible text: ${visibleText.replace(/\s+/g, ' ').slice(0, 500)}`);
+
+      const codePatterns = [
+        /Activation\s*code:\s*\n?\s*([A-Z0-9]{4,8})/i,
+        /code:\s*\n?\s*([A-Z0-9]{5,6})\b/i,
+      ];
+      for (const pat of codePatterns) {
+        const m = visibleText.match(pat);
+        if (m && m[1].length >= 4 && !/activate|sandbox/i.test(m[1])) {
+          activationCode = m[1];
+          break;
+        }
       }
+    } catch (e) {
+      console.log(`[Session] innerText error: ${e.message}`);
     }
-    // Fallback: try to get it from a specific element
+
+    // Fallback: try to find the code element directly in the dialog
     if (!activationCode) {
       try {
-        // The code is usually in a green-colored text element
-        const codeEl = await page.textContent('[class*="green"], [style*="color: rgb(0"], .text-green-500').catch(() => null);
-        if (codeEl && /^[A-Z0-9]{4,8}$/.test(codeEl.trim())) {
-          activationCode = codeEl.trim();
+        // Look for green-colored text in the modal (activation codes are styled green)
+        const greenTexts = await page.locator('[class*="green"], [class*="emerald"], .text-green-500, .text-emerald-500').allTextContents();
+        for (const t of greenTexts) {
+          const clean = t.trim();
+          if (/^[A-Z0-9]{4,8}$/.test(clean)) {
+            activationCode = clean;
+            break;
+          }
         }
       } catch {}
     }
+
     if (activationCode) {
       console.log(`[Sandbox] Activation code: ${activationCode}`);
-      console.log(`[Sandbox] User must send "${activationCode}" to sandbox number via WhatsApp to activate`);
     } else {
-      console.log('[Sandbox] Could not extract activation code from page');
-      console.log(`[Sandbox] Session text snippet: ${sessionText.replace(/\s+/g, ' ').slice(0, 300)}`);
+      console.log('[Sandbox] Could not extract activation code');
     }
 
     // Close the activation modal
