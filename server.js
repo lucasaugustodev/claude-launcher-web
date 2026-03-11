@@ -2539,9 +2539,20 @@ let whatsappBridgeInterval = null;
 const processedWhatsappMsgIds = new Set();
 let whatsappAgentSession = null;
 
-function startWhatsappBridge() {
+async function startWhatsappBridge() {
   if (whatsappBridgeInterval) return;
-  console.log('[WhatsApp] Bridge polling started');
+
+  // Mark all existing messages as processed so we don't replay history on startup
+  try {
+    const existing = await whatsappKapso.getLinkedMessages();
+    for (const msg of existing) {
+      const id = msg.id || msg.message_id;
+      if (id) processedWhatsappMsgIds.add(id);
+    }
+    console.log(`[WhatsApp] Bridge started, skipping ${processedWhatsappMsgIds.size} existing messages`);
+  } catch {
+    console.log('[WhatsApp] Bridge started (could not pre-load messages)');
+  }
 
   whatsappBridgeInterval = setInterval(async () => {
     try {
@@ -2678,7 +2689,8 @@ function registerWhatsAppResponseListener(sessionId) {
     } catch {}
   };
 
-  ptyManager.addListener(sessionId, listener);
+  const added = ptyManager.addListener(sessionId, listener);
+  console.log(`[WhatsApp] Listener registered for ${sessionId.slice(0, 8)}: ${added}`);
 }
 
 // Start bridge if already linked
