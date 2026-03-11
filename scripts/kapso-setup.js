@@ -444,8 +444,16 @@ async function run(phoneNumber) {
 
   console.log('\n=== Done ===');
   console.log('Check kapso-step*.png screenshots for visual progress');
+
+  return credentials;
 }
 
-// Run
-const phone = process.argv[2] || '+5561999196929';
-run(phone).catch(console.error);
+module.exports = { run };
+
+// CLI usage
+if (require.main === module) {
+  const phone = process.argv[2] || '+5561999196929';
+  run(phone).then(creds => {
+    if (creds) console.log('\nCredentials:', JSON.stringify(creds, null, 2));
+  }).catch(console.error);
+}
