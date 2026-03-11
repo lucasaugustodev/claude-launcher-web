@@ -3,7 +3,7 @@ const path = require('path');
 
 const KAPSO_API = 'https://api.kapso.ai/meta/whatsapp/v24.0';
 const KAPSO_KEY = '88d2b65b02c6531e71295e25dad846ba3b5c10391c85f0b109b7a8625e1909d3';
-const PHONE_NUMBER_ID = '934584499749015';
+const PHONE_NUMBER_ID = '1058758523981423';
 const LINK_FILE = path.join(__dirname, '.whatsapp-linked.json');
 
 // In-memory pending codes: { code: { createdAt, resolved, phoneNumber } }
