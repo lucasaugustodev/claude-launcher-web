@@ -1602,7 +1602,7 @@ app.get('/api/whatsapp/status', checkToken, (req, res) => {
 
 app.post('/api/whatsapp/link', checkToken, (req, res) => {
   const code = whatsappKapso.generateCode();
-  res.json({ code, message: `Envie "${code}" para +55 31 7359-8865 no WhatsApp` });
+  res.json({ code, message: `Envie "${code}" para +1 555 836 1618 no WhatsApp` });
 
   // Poll in background
   whatsappKapso.pollForCode(code).then(result => {
