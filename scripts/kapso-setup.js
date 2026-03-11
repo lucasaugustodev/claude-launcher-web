@@ -333,12 +333,35 @@ async function run(phoneNumber) {
     console.log(`[Session] Result: ${sessionText.replace(/\s+/g, ' ').slice(0, 500)}`);
 
     // Extract activation code from the "Activate WhatsApp Sandbox" modal
-    const activationMatch = sessionText.match(/activation\s*code[:\s]*([A-Z0-9]{4,8})/i);
+    // The code is a 5-6 char alphanumeric string shown after "Activation code:"
     let activationCode = null;
-    if (activationMatch) {
-      activationCode = activationMatch[1];
+    const codePatterns = [
+      /Activation\s*code:\s*([A-Z0-9]{4,8})/i,
+      /code:\s*\n?\s*([A-Z0-9]{4,8})/i,
+    ];
+    for (const pat of codePatterns) {
+      const m = sessionText.match(pat);
+      if (m && m[1].length >= 4 && m[1] !== 'Activate') {
+        activationCode = m[1];
+        break;
+      }
+    }
+    // Fallback: try to get it from a specific element
+    if (!activationCode) {
+      try {
+        // The code is usually in a green-colored text element
+        const codeEl = await page.textContent('[class*="green"], [style*="color: rgb(0"], .text-green-500').catch(() => null);
+        if (codeEl && /^[A-Z0-9]{4,8}$/.test(codeEl.trim())) {
+          activationCode = codeEl.trim();
+        }
+      } catch {}
+    }
+    if (activationCode) {
       console.log(`[Sandbox] Activation code: ${activationCode}`);
       console.log(`[Sandbox] User must send "${activationCode}" to sandbox number via WhatsApp to activate`);
+    } else {
+      console.log('[Sandbox] Could not extract activation code from page');
+      console.log(`[Sandbox] Session text snippet: ${sessionText.replace(/\s+/g, ' ').slice(0, 300)}`);
     }
 
     // Close the activation modal
