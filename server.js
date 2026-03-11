@@ -23,63 +23,10 @@ const PORT = process.env.PORT || 3002;
 const app = express();
 const server = http.createServer(app);
 
-// ─── Token-based Auth ───
+// ─── No auth required (handled by hiveclip) ───
 
-// In-memory active tokens: token -> { username, createdAt }
-const activeSessions = new Map();
-
-function hashPassword(password, salt) {
-  if (!salt) salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
-  return { hash, salt };
-}
-
-function verifyPassword(password, storedHash, storedSalt) {
-  const { hash } = hashPassword(password, storedSalt);
-  return hash === storedHash;
-}
-
-function generateToken() {
-  return crypto.randomBytes(32).toString('hex');
-}
-
-function checkToken(req, res, next) {
-  // Public routes
-  if (req.path === '/api/health') return next();
-  if (req.path === '/api/auth/status') return next();
-  if (req.path === '/api/auth/setup') return next();
-  if (req.path === '/api/auth/login') return next();
-
-  // Allow all localhost requests without auth
-  const ip = req.ip || req.connection.remoteAddress || '';
-  const isLocalhost = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip === 'localhost';
-  if (isLocalhost) {
-    req.user = 'localhost';
-    return next();
-  }
-
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Token required' });
-  }
-
-  const token = authHeader.slice(7);
-  const session = activeSessions.get(token);
-  if (!session) {
-    return res.status(401).json({ error: 'Invalid or expired token' });
-  }
-
-  req.user = session.username;
-  next();
-}
-
-// Cleanup expired tokens (24h)
-setInterval(() => {
-  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-  for (const [token, session] of activeSessions) {
-    if (session.createdAt < cutoff) activeSessions.delete(token);
-  }
-}, 60 * 60 * 1000);
+// Onboarding flag file
+const ONBOARDING_FILE = path.join(__dirname, '.onboarding-done');
 
 app.use(express.json({ limit: '5mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
