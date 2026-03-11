@@ -31,7 +31,7 @@ const ONBOARDING_FILE = path.join(__dirname, '.onboarding-done');
 app.use(express.json({ limit: '5mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ─── Auth API ───
+// ─── API ───
 
 app.get('/api/health', (req, res) => {
   res.json({
@@ -41,23 +41,18 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Onboarding status (replaces auth status)
 app.get('/api/auth/status', (req, res) => {
-  const needsSetup = !storage.hasUsers();
-  // Check if caller has a valid token
-  let loggedIn = false;
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    loggedIn = activeSessions.has(authHeader.slice(7));
-  }
+  const onboardingDone = fs.existsSync(ONBOARDING_FILE);
   res.json({
-    needsSetup,
-    loggedIn,
+    needsSetup: false,
+    loggedIn: true,
+    onboardingDone,
     env: {
       platform: process.platform,
       homeDir: (() => {
         const home = os.homedir();
         if (process.platform !== 'win32') return home;
-        // SYSTEM user has unusable homedir; find a real user dir
         if (fs.existsSync(path.join(home, 'Desktop'))) return home;
         const candidates = ['C:\\Users\\Administrator', 'C:\\Users\\Public'];
         for (const c of candidates) { if (fs.existsSync(c)) return c; }
@@ -68,56 +63,14 @@ app.get('/api/auth/status', (req, res) => {
   });
 });
 
-app.post('/api/auth/setup', (req, res) => {
-  if (storage.hasUsers()) {
-    return res.status(400).json({ error: 'Setup already completed' });
-  }
-
-  const { username, password } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password required' });
-  }
-  if (username.length < 3) {
-    return res.status(400).json({ error: 'Username must be at least 3 characters' });
-  }
-  if (password.length < 4) {
-    return res.status(400).json({ error: 'Password must be at least 4 characters' });
-  }
-
-  const { hash, salt } = hashPassword(password);
-  storage.addUser({ username, hash, salt, createdAt: new Date().toISOString() });
-
-  // Auto-login after setup
-  const token = generateToken();
-  activeSessions.set(token, { username, createdAt: Date.now() });
-
-  console.log(`[AUTH] User "${username}" created (setup)`);
-  res.status(201).json({ token, username });
+app.post('/api/onboarding/complete', (req, res) => {
+  fs.writeFileSync(ONBOARDING_FILE, new Date().toISOString());
+  console.log('[ONBOARDING] Completed');
+  res.json({ ok: true });
 });
 
-app.post('/api/auth/login', (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password required' });
-  }
-
-  const user = storage.findUser(username);
-  if (!user || !verifyPassword(password, user.hash, user.salt)) {
-    return res.status(401).json({ error: 'Invalid credentials' });
-  }
-
-  const token = generateToken();
-  activeSessions.set(token, { username, createdAt: Date.now() });
-
-  console.log(`[AUTH] User "${username}" logged in`);
-  res.json({ token, username });
-});
-
-app.post('/api/auth/logout', (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    activeSessions.delete(authHeader.slice(7));
-  }
+app.post('/api/onboarding/reset', (req, res) => {
+  try { fs.unlinkSync(ONBOARDING_FILE); } catch {}
   res.json({ ok: true });
 });
 
