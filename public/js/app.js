@@ -1597,17 +1597,18 @@ function App() {
     }).catch(() => setAuthState('error'));
   }, []);
 
-  // When authed: show sidebar, connect WS, poll active count
+  // Connect WS as soon as we know the state (needed for terminal in onboarding too)
   useEffect(() => {
-    if (authState !== 'app') {
-      document.getElementById('sidebar').style.display = 'none';
-      return;
-    }
-    document.getElementById('sidebar').style.display = 'flex';
+    if (authState === 'loading' || authState === 'error') return;
     API.connectWS();
-    updateActiveCount();
-    const interval = setInterval(updateActiveCount, 10000);
-    return () => clearInterval(interval);
+    if (authState === 'app') {
+      document.getElementById('sidebar').style.display = 'flex';
+      updateActiveCount();
+      const interval = setInterval(updateActiveCount, 10000);
+      return () => clearInterval(interval);
+    } else {
+      document.getElementById('sidebar').style.display = 'none';
+    }
   }, [authState]);
 
   // WS status indicator
