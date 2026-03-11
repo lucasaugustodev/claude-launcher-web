@@ -1716,8 +1716,7 @@ function App() {
   switch (authState) {
     case 'loading': return html`<div class="empty-state"><p>Carregando...</p></div>`;
     case 'error': return html`<div class="empty-state"><p>Servidor indisponivel. Verifique a conexao.</p></div>`;
-    case 'setup': return html`<${SetupPage} onDone=${onAuthDone} />`;
-    case 'login': return html`<${LoginPage} onDone=${onAuthDone} />`;
+    case 'onboarding': return html`<${OnboardingPage} onDone=${onAuthDone} />`;
     case 'app': return html`<${ContentRouter} page=${page} />`;
     default: return null;
   }
