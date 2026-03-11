@@ -687,12 +687,35 @@ app.post('/api/marketplace/install-plugin', checkToken, async (req, res) => {
   const pluginsDir = path.join(claudeDir, 'plugins');
   const marketplaceDir = path.join(pluginsDir, 'marketplaces', plugin.marketplace);
 
+  // Pre-installed plugin detection (e.g. provisioned by hiveclip at C:\<plugin-id>)
+  const preInstalledDir = path.join('C:\\', pluginId);
+  const usePreInstalled = fs.existsSync(path.join(preInstalledDir, 'package.json'));
+
   try {
-    // Step 1: Clone marketplace source
-    if (!fs.existsSync(marketplaceDir)) {
+    // Step 1: Clone marketplace source (or use pre-installed location)
+    if (usePreInstalled) {
+      console.log(`[MARKETPLACE] Using pre-installed plugin at ${preInstalledDir}`);
+      if (!fs.existsSync(marketplaceDir)) {
+        fs.mkdirSync(marketplaceDir, { recursive: true });
+        // Copy from pre-installed instead of git clone
+        const copyRecursivePreinstall = (src, dest) => {
+          if (fs.statSync(src).isDirectory()) {
+            if (['.git', 'node_modules', '.cache'].includes(path.basename(src))) return;
+            fs.mkdirSync(dest, { recursive: true });
+            for (const f of fs.readdirSync(src)) {
+              copyRecursivePreinstall(path.join(src, f), path.join(dest, f));
+            }
+          } else {
+            fs.copyFileSync(src, dest);
+          }
+        };
+        copyRecursivePreinstall(preInstalledDir, marketplaceDir);
+      }
+    } else if (!fs.existsSync(marketplaceDir)) {
       fs.mkdirSync(marketplaceDir, { recursive: true });
       await new Promise((resolve, reject) => {
-        const proc = require('child_process').spawn('git', ['clone', '--depth', '1', `https://github.com/${plugin.repo}.git`, marketplaceDir], { stdio: 'pipe' });
+        const gitCmd = process.platform === 'win32' ? 'git.exe' : 'git';
+        const proc = require('child_process').spawn(gitCmd, ['clone', '--depth', '1', `https://github.com/${plugin.repo}.git`, marketplaceDir], { stdio: 'pipe', shell: true });
         proc.on('close', code => code === 0 ? resolve() : reject(new Error(`git clone failed (${code})`)));
         proc.on('error', reject);
       });
