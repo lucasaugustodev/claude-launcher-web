@@ -2532,6 +2532,58 @@ app.post('/api/planning/launch', checkToken, (req, res) => {
   }
 });
 
+// ─── WhatsApp ↔ Agent Bridge ───
+// Polls Kapso for incoming messages from linked number and injects into active agent session
+
+let whatsappBridgeInterval = null;
+let lastWhatsappMsgId = null;
+
+function startWhatsappBridge() {
+  if (whatsappBridgeInterval) return;
+  whatsappBridgeInterval = setInterval(async () => {
+    try {
+      const status = whatsappKapso.getStatus();
+      if (!status.linked) return;
+
+      const messages = await whatsappKapso.getLinkedMessages();
+      if (!messages || messages.length === 0) return;
+
+      // Get newest message we haven't seen
+      for (const msg of messages) {
+        const msgId = msg.id || msg.message_id;
+        if (!msgId || msgId === lastWhatsappMsgId) continue;
+
+        const body = (msg.text || msg.body || '').trim();
+        if (!body || body.startsWith('HIVE-')) continue; // Skip link codes
+
+        lastWhatsappMsgId = msgId;
+
+        // Broadcast to all WS clients so floating chat can pick it up
+        const payload = JSON.stringify({
+          type: 'whatsapp:message',
+          from: msg.from || msg.sender,
+          text: body,
+          messageId: msgId,
+        });
+        wss.clients.forEach(ws => {
+          if (ws.readyState === ws.OPEN) ws.send(payload);
+        });
+
+        console.log(`[WhatsApp] Incoming from ${status.phoneNumber}: ${body.slice(0, 80)}`);
+        break; // Process one at a time
+      }
+    } catch (err) {
+      // Silent — don't spam logs
+    }
+  }, 3000);
+}
+
+// Start bridge if already linked
+if (whatsappKapso.getStatus().linked) {
+  startWhatsappBridge();
+  console.log('[WhatsApp] Bridge started (already linked)');
+}
+
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Claude Launcher Web running on http://0.0.0.0:${PORT}`);
   console.log(`Setup required: ${!storage.hasUsers()}`);
