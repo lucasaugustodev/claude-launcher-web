@@ -105,6 +105,7 @@ async function run(phoneNumber) {
 
   const phone = phoneNumber.replace(/[\s\-()]/g, '');
   console.log(`[Setup] Target phone: ${phone}`);
+  let credentials = null;
 
   // Step 1: Create temp email
   console.log('\n=== Step 1: Create temp email ===');
