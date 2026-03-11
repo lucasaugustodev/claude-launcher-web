@@ -176,27 +176,45 @@ async function run(phoneNumber) {
 
     // After confirmation, Kapso redirects to login page
     const afterConfirmUrl = page.url();
+    console.log(`[Playwright] After confirm URL: ${afterConfirmUrl}`);
+
     if (!afterConfirmUrl.includes('dashboard') && !afterConfirmUrl.includes('/app')) {
-      // Navigate to login explicitly
+      // Navigate to login page if not already there
       if (!afterConfirmUrl.includes('sign_in')) {
         await page.goto(`${KAPSO_URL}/users/sign_in`, { waitUntil: 'networkidle', timeout: 30000 });
       }
       await page.waitForTimeout(2000);
-      await page.screenshot({ path: 'kapso-step05-login-page.png' });
 
-      // Fill login form (use Kapso's own form, not Google OAuth)
-      const loginEmail = page.locator('input[type="email"], input[name*="email"]').first();
-      const loginPass = page.locator('input[type="password"]').first();
+      // Dump all form inputs for debugging
+      const inputs = await page.locator('input').evaluateAll(els => els.map(el => ({
+        type: el.type, name: el.name, id: el.id, placeholder: el.placeholder
+      })));
+      console.log('[Playwright] Form inputs:', JSON.stringify(inputs));
 
-      if (await loginEmail.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await loginEmail.fill(mail.email);
-        await loginPass.fill(KAPSO_PASSWORD);
+      try {
+        // Fill email
+        await page.fill('input[type="email"]', mail.email);
+        console.log('[Playwright] Email filled');
 
-        // Click "Log in" button (not Google/GitHub)
-        const loginBtn = page.locator('button[type="submit"], input[type="submit"]').first();
-        await loginBtn.click();
-        await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+        // Fill password
+        await page.fill('input[type="password"]', KAPSO_PASSWORD);
+        console.log('[Playwright] Password filled');
+
+        await page.waitForTimeout(500);
+        await page.screenshot({ path: 'kapso-step05-login-filled.png' });
+
+        // Click the Log in button
+        await page.click('button:has-text("Log in")');
+        console.log('[Playwright] Login button clicked');
+
+        // Wait for navigation away from sign_in
+        await page.waitForURL(url => !url.toString().includes('sign_in'), { timeout: 15000 }).catch(e => {
+          console.log(`[Playwright] Wait for URL change failed: ${e.message}`);
+        });
         await page.waitForTimeout(3000);
+      } catch (loginErr) {
+        console.error(`[Login] Error during fill/submit: ${loginErr.message}`);
+        await page.screenshot({ path: 'kapso-error-login-fill.png' });
       }
     }
 
@@ -206,7 +224,11 @@ async function run(phoneNumber) {
     // Check if we're actually logged in
     const loginUrl = page.url();
     if (loginUrl.includes('sign_in') || loginUrl.includes('google.com')) {
-      console.error('[Error] Login failed - still on login/OAuth page');
+      // Dump page for debug
+      const pageHtml = await page.content();
+      const errorMsg = pageHtml.match(/alert[^>]*>(.*?)<\/div/is);
+      if (errorMsg) console.log(`[Login Error] ${errorMsg[1].trim()}`);
+      console.error('[Error] Login failed - still on login page');
       await page.screenshot({ path: 'kapso-error-login.png' });
       throw new Error('Login failed');
     }
