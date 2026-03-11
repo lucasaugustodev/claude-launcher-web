@@ -150,8 +150,10 @@ async function run(phoneNumber) {
     console.log('\n=== Step 3: Email confirmation ===');
 
     const emailMsg = await waitForEmail(mail.token, 60000);
-    const emailHtml = emailMsg.html || '';
-    const emailText = emailMsg.text || '';
+    const rawHtml = emailMsg.html;
+    const rawText = emailMsg.text;
+    const emailHtml = typeof rawHtml === 'string' ? rawHtml : (Array.isArray(rawHtml) ? rawHtml.join(' ') : JSON.stringify(rawHtml || ''));
+    const emailText = typeof rawText === 'string' ? rawText : (Array.isArray(rawText) ? rawText.join(' ') : JSON.stringify(rawText || ''));
     console.log(`[Mail] Subject: "${emailMsg.subject}"`);
     console.log(`[Mail] HTML preview: ${emailHtml.slice(0, 500)}`);
     console.log(`[Mail] Text preview: ${emailText.slice(0, 500)}`);
