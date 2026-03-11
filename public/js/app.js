@@ -1730,8 +1730,11 @@ function App() {
     return () => { backBtn.onclick = null; stopBtn.onclick = null; };
   }, []);
 
-  // Auth done callback
-  const onAuthDone = useCallback(() => setAuthState('app'), []);
+  // Auth done callback (from onboarding)
+  const onAuthDone = useCallback(() => {
+    cameFromOnboarding.current = true;
+    setAuthState('app');
+  }, []);
 
   switch (authState) {
     case 'loading': return html`<div class="empty-state"><p>Carregando...</p></div>`;
