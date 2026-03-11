@@ -71,20 +71,24 @@ async function waitForEmail(token, timeoutMs = 120000) {
   throw new Error('Timeout waiting for email');
 }
 
-function extractConfirmationLink(emailHtml) {
-  // Kapso sends a Devise confirmation link
+function extractConfirmationLink(emailContent) {
+  // Normalize to string
+  let text = '';
+  if (typeof emailContent === 'string') text = emailContent;
+  else if (Array.isArray(emailContent)) text = emailContent.join(' ');
+  else if (emailContent && typeof emailContent === 'object') text = JSON.stringify(emailContent);
+  else return null;
+
   const patterns = [
     /href="(https?:\/\/[^"]*confirm[^"]*)"/i,
     /href="(https?:\/\/[^"]*verify[^"]*)"/i,
     /href="(https?:\/\/[^"]*activate[^"]*)"/i,
     /(https?:\/\/app\.kapso\.ai[^\s"<]*confirm[^\s"<]*)/i,
   ];
-  const text = emailHtml || '';
   for (const p of patterns) {
     const m = text.match(p);
     if (m) return m[1];
   }
-  // Fallback: any kapso.ai link
   const fallback = text.match(/href="(https?:\/\/app\.kapso\.ai[^"]*)"/i);
   if (fallback) return fallback[1];
   return null;
