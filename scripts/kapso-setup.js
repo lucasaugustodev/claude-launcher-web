@@ -179,42 +179,36 @@ async function run(phoneNumber) {
     console.log(`[Playwright] After confirm URL: ${afterConfirmUrl}`);
 
     if (!afterConfirmUrl.includes('dashboard') && !afterConfirmUrl.includes('/app')) {
-      // Navigate to login page if not already there
-      if (!afterConfirmUrl.includes('sign_in')) {
-        await page.goto(`${KAPSO_URL}/users/sign_in`, { waitUntil: 'networkidle', timeout: 30000 });
-      }
-      await page.waitForTimeout(2000);
-
-      // Dump all form inputs for debugging
-      const inputs = await page.locator('input').evaluateAll(els => els.map(el => ({
-        type: el.type, name: el.name, id: el.id, placeholder: el.placeholder
-      })));
-      console.log('[Playwright] Form inputs:', JSON.stringify(inputs));
-
       try {
-        // Fill email
-        await page.fill('input[type="email"]', mail.email);
-        console.log('[Playwright] Email filled');
+        // Go to login page fresh
+        await page.goto(`${KAPSO_URL}/users/sign_in`, { waitUntil: 'networkidle', timeout: 30000 });
+        console.log('[Login] On login page');
 
-        // Fill password
-        await page.fill('input[type="password"]', KAPSO_PASSWORD);
-        console.log('[Playwright] Password filled');
+        // Wait for email input to appear
+        await page.waitForSelector('input[type="email"]', { timeout: 10000 });
+        console.log('[Login] Email input found');
 
-        await page.waitForTimeout(500);
+        // Type credentials using keyboard (more reliable than fill)
+        await page.click('input[type="email"]');
+        await page.keyboard.type(mail.email, { delay: 30 });
+        console.log(`[Login] Typed email: ${mail.email}`);
+
+        await page.click('input[type="password"]');
+        await page.keyboard.type(KAPSO_PASSWORD, { delay: 30 });
+        console.log('[Login] Typed password');
+
         await page.screenshot({ path: 'kapso-step05-login-filled.png' });
 
-        // Click the Log in button
-        await page.click('button:has-text("Log in")');
-        console.log('[Playwright] Login button clicked');
+        // Press Enter to submit (simpler than finding button)
+        await page.keyboard.press('Enter');
+        console.log('[Login] Pressed Enter');
 
-        // Wait for navigation away from sign_in
-        await page.waitForURL(url => !url.toString().includes('sign_in'), { timeout: 15000 }).catch(e => {
-          console.log(`[Playwright] Wait for URL change failed: ${e.message}`);
-        });
-        await page.waitForTimeout(3000);
+        // Wait for URL to change
+        await page.waitForTimeout(8000);
+        console.log(`[Login] URL after submit: ${page.url()}`);
       } catch (loginErr) {
-        console.error(`[Login] Error during fill/submit: ${loginErr.message}`);
-        await page.screenshot({ path: 'kapso-error-login-fill.png' });
+        console.error(`[Login] Error: ${loginErr.message}`);
+        await page.screenshot({ path: 'kapso-error-login.png' }).catch(() => {});
       }
     }
 
