@@ -279,6 +279,58 @@
     }
   }
 
+  // ─── WhatsApp Bridge ───
+
+  function initWhatsAppBridge() {
+    if (FC._whatsappBridge) return;
+    FC._whatsappBridge = true;
+
+    // Incoming WhatsApp message → inject into agent session
+    API.on('whatsapp:message', function(msg) {
+      if (!msg.text) return;
+      var text = msg.text;
+
+      // Show in chat UI with WhatsApp indicator
+      addMessage('user', '\uD83D\uDCF1 ' + text);
+      FC._lastSentText = text;
+
+      // If no session, launch one
+      if (!FC.sessionId || FC.status === 'ended') {
+        FC.status = 'idle';
+        clearSession();
+        launchSession();
+        var checkInterval = setInterval(function() {
+          if (FC.sessionId && FC.status !== 'connecting') {
+            clearInterval(checkInterval);
+            API.sendStreamJsonInput(FC.sessionId, text);
+            FC.status = 'thinking';
+            updateStatus();
+          }
+        }, 500);
+        return;
+      }
+
+      API.sendStreamJsonInput(FC.sessionId, text);
+      FC.status = 'thinking';
+      updateStatus();
+    });
+  }
+
+  // Send agent response to WhatsApp (called from flushVoiceBuffer)
+  function sendToWhatsApp(text) {
+    if (!text || !text.trim()) return;
+    // Fire and forget — don't block the UI
+    fetch('/api/whatsapp/status').then(function(r) { return r.json(); }).then(function(s) {
+      if (s.linked) {
+        fetch('/api/whatsapp/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: text.trim() }),
+        }).catch(function() {});
+      }
+    }).catch(function() {});
+  }
+
   // ─── Voice Buffer ───
 
   function flushVoiceBuffer() {
@@ -288,6 +340,7 @@
 
     addMessage('assistant', text.trim());
     feedTTS(text);
+    sendToWhatsApp(text);
 
     if (!FC.open) {
       FC.unread++;
