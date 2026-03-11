@@ -1590,12 +1590,10 @@ function App() {
 
   // Boot: check auth status
   useEffect(() => {
-    API.loadToken();
     API.checkAuthStatus().then(status => {
       if (status.env) API.serverEnv = status.env;
-      if (status.needsSetup) setAuthState('setup');
-      else if (status.loggedIn) setAuthState('app');
-      else setAuthState('login');
+      if (!status.onboardingDone) setAuthState('onboarding');
+      else setAuthState('app');
     }).catch(() => setAuthState('error'));
   }, []);
 
