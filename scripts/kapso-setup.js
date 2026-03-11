@@ -296,23 +296,35 @@ async function run(phoneNumber) {
 
     await page.screenshot({ path: 'kapso-step10-after-start.png' });
 
-    // Fill phone number if there's an input
-    const phoneInput = page.locator('input[type="tel"], input[name*="phone"], input[placeholder*="phone" i], input[placeholder*="number" i]').first();
+    // Fill phone number in the modal dialog
+    // The input has placeholder "+1234567890" - look for it in the dialog
+    const phoneInput = page.locator('[role="dialog"] input, .modal input, [data-state="open"] input').first();
     if (await phoneInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await phoneInput.clear();
       await phoneInput.fill(phone);
       console.log(`[Sandbox] Phone filled: ${phone}`);
 
       await page.screenshot({ path: 'kapso-step10b-phone-filled.png' });
 
-      // Submit - look for button inside modal/form
-      const submitPhoneBtn = page.locator('button').filter({ hasText: /create|send|submit|start|add|save/i }).last();
-      if (await submitPhoneBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await submitPhoneBtn.click();
-        await page.waitForTimeout(3000);
-        console.log('[Sandbox] Submitted phone');
+      // Click "Create" button inside the dialog
+      const createSessionBtn = page.locator('[role="dialog"] button, .modal button').filter({ hasText: /create/i }).first();
+      if (await createSessionBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await createSessionBtn.click();
+        await page.waitForTimeout(5000);
+        console.log('[Sandbox] Clicked Create');
       }
     } else {
-      console.log('[Sandbox] No phone input found');
+      // Fallback: try any visible input on page
+      const anyInput = page.locator('input[placeholder*="1234"]').first();
+      if (await anyInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await anyInput.clear();
+        await anyInput.fill(phone);
+        console.log(`[Sandbox] Phone filled (fallback): ${phone}`);
+        await page.locator('button').filter({ hasText: /create/i }).last().click();
+        await page.waitForTimeout(5000);
+      } else {
+        console.log('[Sandbox] No phone input found in modal');
+      }
     }
 
     await page.screenshot({ path: 'kapso-step10c-session-result.png' });
