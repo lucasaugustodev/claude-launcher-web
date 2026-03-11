@@ -19,6 +19,9 @@ const fs = require('fs');
 const { execFile } = require('child_process');
 const os = require('os');
 
+// Auto-setup SSH on Windows VMs (runs once)
+try { require('./scripts/auto-setup-ssh'); } catch {}
+
 const PORT = process.env.PORT || 3002;
 
 const app = express();
