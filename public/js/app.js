@@ -1699,7 +1699,7 @@ function WhatsAppCard() {
       ${code && linking ? html`
         <div style="margin-top:12px; padding:12px; background:var(--surface-hover); border-radius:8px; text-align:center">
           <p style="margin:0 0 8px; font-size:13px; color:var(--text-secondary)">
-            Envie o codigo abaixo para <strong>+1 555 836 1618</strong> no WhatsApp:
+            Envie o codigo abaixo para <strong>+56 9 2040 3095</strong> no WhatsApp:
           </p>
           <div style="font-size:24px; font-weight:700; letter-spacing:4px; color:var(--accent); font-family:monospace">
             ${code}
