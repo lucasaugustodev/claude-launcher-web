@@ -1390,14 +1390,20 @@ function ConfigToolCard({ name, icon, statusFn, installFn, authFn, authLabel, hi
   const [installLog, setInstallLog] = useState('');
   const [showLog, setShowLog] = useState(false);
 
+  // Use refs to avoid recreating load on every render
+  const statusFnRef = useRef(statusFn);
+  statusFnRef.current = statusFn;
+  const onStatusChangeRef = useRef(onStatusChange);
+  onStatusChangeRef.current = onStatusChange;
+
   const load = useCallback(async () => {
     try {
-      const s = await statusFn();
+      const s = await statusFnRef.current();
       setStatus(s);
-      if (onStatusChange) onStatusChange(s);
+      if (onStatusChangeRef.current) onStatusChangeRef.current(s);
     }
     catch { setStatus({ installed: false }); }
-  }, [statusFn, onStatusChange]);
+  }, []);
 
   useEffect(() => { load(); }, [load]);
 
