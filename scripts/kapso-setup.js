@@ -411,8 +411,11 @@ async function run(phoneNumber) {
       if (km) apiKey = km[1];
     } catch {}
 
-    // Save credentials
-    const credentials = {
+    // Final screenshot
+    await page.screenshot({ path: 'kapso-step13-final.png', fullPage: true });
+
+    // Build credentials
+    credentials = {
       email: mail.email,
       password: KAPSO_PASSWORD,
       mailTmToken: mail.token,
@@ -425,21 +428,21 @@ async function run(phoneNumber) {
       sandboxNumber: '+56920403095',
     };
 
+  } catch (err) {
+    console.error('[Error]', err.message);
+    await page.screenshot({ path: 'kapso-error.png' }).catch(() => {});
+  } finally {
+    await browser.close();
+  }
+
+  // Save credentials
+  if (credentials) {
     const fs = require('fs');
     fs.writeFileSync(
       require('path').join(__dirname, '..', '.kapso-credentials.json'),
       JSON.stringify(credentials, null, 2)
     );
     console.log('\n[Setup] Credentials saved to .kapso-credentials.json');
-
-    // Final screenshot
-    await page.screenshot({ path: 'kapso-step13-final.png', fullPage: true });
-
-  } catch (err) {
-    console.error('[Error]', err.message);
-    await page.screenshot({ path: 'kapso-error.png' }).catch(() => {});
-  } finally {
-    await browser.close();
   }
 
   console.log('\n=== Done ===');
