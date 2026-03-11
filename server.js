@@ -2533,14 +2533,17 @@ app.post('/api/planning/launch', checkToken, (req, res) => {
   }
 });
 
-// ─── WhatsApp ↔ Agent Bridge ───
-// Polls Kapso for incoming messages from linked number and injects into active agent session
+// ─── WhatsApp ↔ Agent Bridge (fully server-side) ───
 
 let whatsappBridgeInterval = null;
 let lastWhatsappMsgId = null;
+let whatsappAgentSession = null; // session ID of the agent handling WhatsApp
+let whatsappResponseBuffer = '';
 
 function startWhatsappBridge() {
   if (whatsappBridgeInterval) return;
+  console.log('[WhatsApp] Bridge polling started');
+
   whatsappBridgeInterval = setInterval(async () => {
     try {
       const status = whatsappKapso.getStatus();
@@ -2549,18 +2552,18 @@ function startWhatsappBridge() {
       const messages = await whatsappKapso.getLinkedMessages();
       if (!messages || messages.length === 0) return;
 
-      // Get newest message we haven't seen
       for (const msg of messages) {
         const msgId = msg.id || msg.message_id;
         if (!msgId || msgId === lastWhatsappMsgId) continue;
 
         const rawText = msg.text;
         const body = (typeof rawText === 'string' ? rawText : (rawText && rawText.body) || msg.body || '').trim();
-        if (!body || body.startsWith('HIVE-')) continue; // Skip link codes
+        if (!body || body.startsWith('HIVE-')) continue;
 
         lastWhatsappMsgId = msgId;
+        console.log(`[WhatsApp] Incoming: ${body.slice(0, 80)}`);
 
-        // Broadcast to all WS clients so floating chat can pick it up
+        // Broadcast to browser clients
         const payload = JSON.stringify({
           type: 'whatsapp:message',
           from: msg.from || msg.sender,
@@ -2571,19 +2574,117 @@ function startWhatsappBridge() {
           if (ws.readyState === ws.OPEN) ws.send(payload);
         });
 
-        console.log(`[WhatsApp] Incoming from ${status.phoneNumber}: ${body.slice(0, 80)}`);
-        break; // Process one at a time
+        // Inject into agent session (or launch one)
+        await handleWhatsAppInput(body);
+        break;
       }
     } catch (err) {
-      // Silent — don't spam logs
+      // Silent
     }
   }, 3000);
+}
+
+async function handleWhatsAppInput(text) {
+  // Check if existing session is alive
+  if (whatsappAgentSession) {
+    const sent = ptyManager.sendStreamJsonInput(whatsappAgentSession, text);
+    if (sent) {
+      console.log(`[WhatsApp] Injected into session ${whatsappAgentSession.slice(0, 8)}`);
+      return;
+    }
+    // Session dead, clear it
+    whatsappAgentSession = null;
+  }
+
+  // Launch new agent session
+  try {
+    const session = ptyManager.launchAgent({
+      agentName: 'manager-gestor',
+      workingDirectory: null,
+      mode: 'bypass',
+      nodeMemory: null,
+      streamJson: true,
+      prompt: text,
+    });
+    whatsappAgentSession = session.id;
+    console.log(`[WhatsApp] Launched agent session ${session.id.slice(0, 8)}`);
+
+    // Register a listener to capture agent responses and send via WhatsApp
+    registerWhatsAppResponseListener(session.id);
+  } catch (err) {
+    console.error('[WhatsApp] Failed to launch agent:', err.message);
+    const status = whatsappKapso.getStatus();
+    if (status.linked) {
+      whatsappKapso.sendMessage(status.phoneNumber, 'Erro ao iniciar agente: ' + err.message).catch(() => {});
+    }
+  }
+}
+
+function registerWhatsAppResponseListener(sessionId) {
+  const handle = ptyManager.getHandle(sessionId);
+  if (!handle) return;
+
+  let responseBuffer = '';
+  let flushTimer = null;
+
+  const listener = (raw) => {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed.type !== 'stream-json' || parsed.sessionId !== sessionId) return;
+
+      const event = parsed.event;
+      if (!event) return;
+
+      if (event.type === 'assistant') {
+        const content = event.message && event.message.content;
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === 'text' && block.text) {
+              responseBuffer += block.text;
+              // Debounce flush
+              clearTimeout(flushTimer);
+              flushTimer = setTimeout(() => flushWhatsAppResponse(), 800);
+            }
+          }
+        }
+      }
+
+      if (event.type === 'result') {
+        // Agent turn complete — flush any remaining text
+        clearTimeout(flushTimer);
+        flushWhatsAppResponse();
+      }
+    } catch {}
+  };
+
+  function flushWhatsAppResponse() {
+    const text = responseBuffer.trim();
+    responseBuffer = '';
+    if (!text) return;
+
+    const status = whatsappKapso.getStatus();
+    if (status.linked) {
+      // WhatsApp has 4096 char limit per message
+      const chunks = [];
+      for (let i = 0; i < text.length; i += 4000) {
+        chunks.push(text.slice(i, i + 4000));
+      }
+      chunks.reduce((p, chunk) => p.then(() =>
+        whatsappKapso.sendMessage(status.phoneNumber, chunk)
+      ), Promise.resolve()).then(() => {
+        console.log(`[WhatsApp] Sent response (${text.length} chars)`);
+      }).catch(err => {
+        console.error('[WhatsApp] Send error:', err.message);
+      });
+    }
+  }
+
+  handle.listeners.add(listener);
 }
 
 // Start bridge if already linked
 if (whatsappKapso.getStatus().linked) {
   startWhatsappBridge();
-  console.log('[WhatsApp] Bridge started (already linked)');
 }
 
 server.listen(PORT, '0.0.0.0', () => {
