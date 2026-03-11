@@ -1588,6 +1588,28 @@ function ContentRouter({ page }) {
   }
 }
 
+// ─── Auto-install marketplace items (after onboarding) ───
+
+async function autoInstallMarketplace() {
+  try {
+    const catalog = await API.getMarketplaceCatalog();
+    for (const pack of catalog.agentPacks) {
+      if (!pack.cached) {
+        await API.refreshAgentPack(pack.id);
+      }
+      await API.installAgents(pack.id);
+    }
+    for (const plugin of (catalog.plugins || [])) {
+      if (!plugin.installed) {
+        await API.installPlugin(plugin.id);
+      }
+    }
+    showToast('Marketplace instalado automaticamente!');
+  } catch (err) {
+    console.error('[AutoInstall] Marketplace error:', err);
+  }
+}
+
 // ─── Main App ───
 
 function App() {
