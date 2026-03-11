@@ -628,7 +628,7 @@ app.post('/api/marketplace/install-agents', checkToken, async (req, res) => {
     } else {
       // Pull latest
       await new Promise((resolve, reject) => {
-        const proc = require('child_process').spawn('git', ['pull'], { cwd: cacheDir, stdio: 'pipe' });
+        const proc = require('child_process').spawn('git', ['pull'], { cwd: cacheDir, stdio: 'pipe', shell: true });
         proc.on('close', () => resolve());
         proc.on('error', () => resolve()); // ignore pull errors
       });
