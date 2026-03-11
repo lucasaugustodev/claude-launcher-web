@@ -2,4 +2,8 @@ node_modules/
 data/
 tunnel.log
 *.log
-".playwright-cli/" 
+".playwright-cli/"
+.whatsapp-linked.json
+.env
+.env.local
+.env.*.local
