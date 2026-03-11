@@ -331,6 +331,22 @@ async function run(phoneNumber) {
     const sessionText = await page.textContent('body').catch(() => '');
     console.log(`[Session] Result: ${sessionText.replace(/\s+/g, ' ').slice(0, 500)}`);
 
+    // Extract activation code from the "Activate WhatsApp Sandbox" modal
+    const activationMatch = sessionText.match(/activation\s*code[:\s]*([A-Z0-9]{4,8})/i);
+    let activationCode = null;
+    if (activationMatch) {
+      activationCode = activationMatch[1];
+      console.log(`[Sandbox] Activation code: ${activationCode}`);
+      console.log(`[Sandbox] User must send "${activationCode}" to sandbox number via WhatsApp to activate`);
+    }
+
+    // Close the activation modal
+    const closeBtn = page.locator('button').filter({ hasText: /close/i }).first();
+    if (await closeBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await closeBtn.click();
+      await page.waitForTimeout(1000);
+    }
+
     // Step 7: Create API Key via sidebar
     console.log('\n=== Step 7: Create API Key ===');
 
