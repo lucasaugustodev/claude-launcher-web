@@ -759,13 +759,13 @@ app.post('/api/marketplace/install-plugin', checkToken, async (req, res) => {
       copyRecursive(pluginSrcDir, cacheDir);
     }
 
-    // Step 4: Install dependencies
+    // Step 4: Install dependencies (skip if pre-installed with deps already present)
     const pkgJson = path.join(cacheDir, 'package.json');
-    if (fs.existsSync(pkgJson)) {
+    const depsExist = fs.existsSync(path.join(cacheDir, 'node_modules')) || fs.existsSync(path.join(cacheDir, 'bun.lockb'));
+    if (fs.existsSync(pkgJson) && !depsExist) {
       await new Promise((resolve, reject) => {
-        // Try bun first, fall back to npm
         const cmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-        const proc = require('child_process').spawn(cmd, ['install', '--production'], { cwd: cacheDir, stdio: 'pipe' });
+        const proc = require('child_process').spawn(cmd, ['install', '--production'], { cwd: cacheDir, stdio: 'pipe', shell: true });
         proc.on('close', code => code === 0 ? resolve() : reject(new Error(`npm install failed (${code})`)));
         proc.on('error', reject);
       });
