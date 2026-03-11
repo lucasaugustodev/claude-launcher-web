@@ -1580,8 +1580,11 @@ function ConfigPage() {
 
 function WhatsAppCard() {
   const [status, setStatus] = useState(null);
-  const [linking, setLinking] = useState(false);
-  const [code, setCode] = useState(null);
+  const [step, setStep] = useState('idle'); // idle | phone-input | setting-up | activation | linked
+  const [phoneInput, setPhoneInput] = useState('');
+  const [activationCode, setActivationCode] = useState(null);
+  const [sandboxNumber, setSandboxNumber] = useState('+56920403095');
+  const [setupMsg, setSetupMsg] = useState('');
   const [pollTimer, setPollTimer] = useState(null);
 
   const load = useCallback(async () => {
@@ -1591,57 +1594,101 @@ function WhatsAppCard() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Listen for WS link confirmation
+  // Listen for WS events
   useEffect(() => {
     const onLinked = (msg) => {
       if (msg.phoneNumber) {
         setStatus({ linked: true, phoneNumber: msg.phoneNumber });
-        setLinking(false);
-        setCode(null);
+        setStep('linked');
+        setActivationCode(null);
         if (pollTimer) { clearInterval(pollTimer); setPollTimer(null); }
         showToast('WhatsApp vinculado!');
       }
     };
+    const onSetupComplete = (msg) => {
+      console.log('[WhatsApp] Setup complete:', msg);
+      setActivationCode(msg.activationCode);
+      if (msg.sandboxNumber) setSandboxNumber(msg.sandboxNumber);
+      setStep('activation');
+      setSetupMsg('');
+    };
+    const onSetupProgress = (msg) => {
+      setSetupMsg(msg.message || '');
+    };
+    const onSetupError = (msg) => {
+      setStep('idle');
+      setSetupMsg('');
+      showToast('Erro no setup: ' + (msg.error || 'desconhecido'), 'error');
+    };
+
     API.on('whatsapp:linked', onLinked);
-    return () => API.off('whatsapp:linked', onLinked);
+    API.on('whatsapp:setup-complete', onSetupComplete);
+    API.on('whatsapp:setup-progress', onSetupProgress);
+    API.on('whatsapp:setup-error', onSetupError);
+    return () => {
+      API.off('whatsapp:linked', onLinked);
+      API.off('whatsapp:setup-complete', onSetupComplete);
+      API.off('whatsapp:setup-progress', onSetupProgress);
+      API.off('whatsapp:setup-error', onSetupError);
+    };
   }, [pollTimer]);
 
-  const handleLink = useCallback(async () => {
-    setLinking(true);
+  const handleStartLink = useCallback(() => {
+    setStep('phone-input');
+    setPhoneInput('');
+  }, []);
+
+  const handleSubmitPhone = useCallback(async () => {
+    let phone = phoneInput.replace(/[\s\-()]/g, '');
+    if (!phone.startsWith('+')) phone = '+' + phone;
+    if (phone.length < 10) {
+      showToast('Numero invalido. Use formato internacional: +5561999999999', 'error');
+      return;
+    }
+
+    setStep('setting-up');
+    setSetupMsg('Iniciando configuracao automatica...');
+
+    try {
+      await API.setupWhatsApp(phone);
+      // Response is immediate, real result comes via WebSocket
+    } catch (err) {
+      setStep('idle');
+      showToast('Erro: ' + err.message, 'error');
+    }
+  }, [phoneInput]);
+
+  const handleActivationDone = useCallback(async () => {
+    // Start polling to check if activation was successful
+    // Use the old link flow: generate code and poll
+    setSetupMsg('Verificando ativacao...');
     try {
       const result = await API.linkWhatsApp();
-      setCode(result.code);
 
-      // Poll link status every 3s
       const t = setInterval(async () => {
         try {
           const ls = await API.getWhatsAppLinkStatus(result.code);
           if (ls.status === 'linked') {
             clearInterval(t);
             setPollTimer(null);
-            setLinking(false);
-            setCode(null);
             load();
+            setStep('idle');
           } else if (ls.status === 'expired') {
             clearInterval(t);
             setPollTimer(null);
-            setLinking(false);
-            setCode(null);
-            showToast('Codigo expirou. Tente novamente.', 'error');
+            setSetupMsg('');
           }
         } catch {}
       }, 3000);
       setPollTimer(t);
-    } catch (err) {
-      showToast('Erro: ' + err.message, 'error');
-      setLinking(false);
-    }
+    } catch {}
   }, [load]);
 
   const handleUnlink = useCallback(async () => {
     try {
       await API.unlinkWhatsApp();
       setStatus({ linked: false });
+      setStep('idle');
       showToast('WhatsApp desvinculado');
     } catch (err) {
       showToast('Erro: ' + err.message, 'error');
@@ -1650,11 +1697,16 @@ function WhatsAppCard() {
 
   const formatPhone = (p) => {
     if (!p) return '';
-    // Format as +XX (XX) XXXXX-XXXX for BR numbers
     if (p.startsWith('55') && p.length >= 12) {
       return '+' + p.slice(0, 2) + ' (' + p.slice(2, 4) + ') ' + p.slice(4, 9) + '-' + p.slice(9);
     }
     return '+' + p;
+  };
+
+  const formatSandbox = (n) => {
+    if (!n) return '';
+    const clean = n.replace(/[^0-9+]/g, '');
+    return clean.startsWith('+') ? clean : '+' + clean;
   };
 
   if (!status) {
@@ -1690,22 +1742,63 @@ function WhatsAppCard() {
         <div style="display:flex; gap:8px">
           ${status.linked
             ? html`<button class="btn btn-sm btn-danger" onClick=${handleUnlink}>Desvincular</button>`
-            : html`<button class="btn btn-sm btn-primary" onClick=${handleLink} disabled=${linking}>
-                ${linking ? 'Aguardando...' : 'Sincronizar'}
-              </button>`
+            : step === 'idle'
+              ? html`<button class="btn btn-sm btn-primary" onClick=${handleStartLink}>Vincular</button>`
+              : null
           }
         </div>
       </div>
-      ${code && linking ? html`
-        <div style="margin-top:12px; padding:12px; background:var(--surface-hover); border-radius:8px; text-align:center">
+
+      ${step === 'phone-input' ? html`
+        <div style="margin-top:12px; padding:12px; background:var(--surface-hover); border-radius:8px">
           <p style="margin:0 0 8px; font-size:13px; color:var(--text-secondary)">
-            Envie o codigo abaixo para <strong>+56 9 2040 3095</strong> no WhatsApp:
+            Digite seu numero de WhatsApp (formato internacional):
           </p>
-          <div style="font-size:24px; font-weight:700; letter-spacing:4px; color:var(--accent); font-family:monospace">
-            ${code}
+          <div style="display:flex; gap:8px; align-items:center">
+            <input
+              type="tel"
+              value=${phoneInput}
+              onInput=${(e) => setPhoneInput(e.target.value)}
+              placeholder="+5561999999999"
+              style="flex:1; padding:8px 12px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text-primary); font-size:15px; font-family:monospace"
+              onKeyDown=${(e) => e.key === 'Enter' && handleSubmitPhone()}
+            />
+            <button class="btn btn-sm btn-primary" onClick=${handleSubmitPhone}>Vincular</button>
+            <button class="btn btn-sm" onClick=${() => setStep('idle')} style="opacity:0.7">Cancelar</button>
           </div>
-          <p style="margin:8px 0 0; font-size:12px; color:var(--text-muted)">
-            Aguardando sua mensagem... (expira em 10 minutos)
+        </div>
+      ` : null}
+
+      ${step === 'setting-up' ? html`
+        <div style="margin-top:12px; padding:16px; background:var(--surface-hover); border-radius:8px; text-align:center">
+          <div style="margin-bottom:8px">
+            <span style="display:inline-block; animation: spin 1s linear infinite; font-size:20px">&#9881;</span>
+          </div>
+          <p style="margin:0; font-size:14px; color:var(--text-secondary); font-weight:500">
+            Configurando WhatsApp automaticamente...
+          </p>
+          <p style="margin:4px 0 0; font-size:12px; color:var(--text-muted)">
+            ${setupMsg || 'Criando conta, sandbox e API key no Kapso...'}
+          </p>
+          <p style="margin:8px 0 0; font-size:11px; color:var(--text-muted)">
+            Isso pode levar ate 2 minutos
+          </p>
+        </div>
+      ` : null}
+
+      ${step === 'activation' && activationCode ? html`
+        <div style="margin-top:12px; padding:16px; background:var(--surface-hover); border-radius:8px; text-align:center">
+          <p style="margin:0 0 4px; font-size:14px; color:var(--text-secondary); font-weight:500">
+            Quase la! Envie o codigo abaixo via WhatsApp:
+          </p>
+          <p style="margin:0 0 12px; font-size:12px; color:var(--text-muted)">
+            Para o numero: <strong style="color:var(--text-primary)">${formatSandbox(sandboxNumber)}</strong>
+          </p>
+          <div style="font-size:28px; font-weight:700; letter-spacing:6px; color:var(--accent); font-family:monospace; padding:12px; background:var(--surface); border-radius:8px; display:inline-block; min-width:200px">
+            ${activationCode}
+          </div>
+          <p style="margin:12px 0 0; font-size:12px; color:var(--text-muted)">
+            Apos enviar, aguarde a confirmacao automatica
           </p>
         </div>
       ` : null}
