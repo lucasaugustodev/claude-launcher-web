@@ -686,18 +686,26 @@
       return;
     }
     buildWidget();
-    // Watch for auth and pre-launch session when token becomes available
-    waitForAuth();
+    // Start hidden — App will call FloatingChat.show() when ready
+    hideBubble();
   }
 
-  function waitForAuth() {
-    if (!API || !API._token) {
-      setTimeout(waitForAuth, 1000);
-      return;
-    }
-    // NOTE: do NOT launch here — wait for user to open the panel
-    // This avoids creating orphan sessions on every page load
+  function hideBubble() {
+    var bubble = document.getElementById('fchat-bubble');
+    if (bubble) bubble.style.display = 'none';
   }
+
+  function showBubble() {
+    var bubble = document.getElementById('fchat-bubble');
+    if (bubble) bubble.style.display = '';
+  }
+
+  // Expose control API globally
+  window.FloatingChat = {
+    show: showBubble,
+    hide: hideBubble,
+    open: function() { if (!FC.open) togglePanel(); },
+  };
 
   // Start when DOM ready
   if (document.readyState === 'loading') {
