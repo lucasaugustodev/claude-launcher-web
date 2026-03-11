@@ -529,6 +529,9 @@ const API = {
       if (msg.type === 'schedule:skipped') this._emit('schedule:skipped', msg);
       if (msg.type === 'whatsapp:linked') this._emit('whatsapp:linked', msg);
       if (msg.type === 'whatsapp:message') this._emit('whatsapp:message', msg);
+      if (msg.type === 'whatsapp:setup-progress') this._emit('whatsapp:setup-progress', msg);
+      if (msg.type === 'whatsapp:setup-complete') this._emit('whatsapp:setup-complete', msg);
+      if (msg.type === 'whatsapp:setup-error') this._emit('whatsapp:setup-error', msg);
     };
 
     this._ws.onclose = () => {
