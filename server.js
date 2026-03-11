@@ -1594,6 +1594,55 @@ app.delete('/api/gws-sessions/history', checkToken, (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── WhatsApp (Kapso) API ───
+
+app.get('/api/whatsapp/status', checkToken, (req, res) => {
+  res.json(whatsappKapso.getStatus());
+});
+
+app.post('/api/whatsapp/link', checkToken, (req, res) => {
+  const code = whatsappKapso.generateCode();
+  res.json({ code, message: `Envie "${code}" para +55 31 7359-8865 no WhatsApp` });
+
+  // Poll in background
+  whatsappKapso.pollForCode(code).then(result => {
+    if (result.success) {
+      console.log(`[WhatsApp] Linked to ${result.phoneNumber}`);
+      // Notify via WebSocket
+      wss.clients.forEach(ws => {
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'whatsapp:linked', phoneNumber: result.phoneNumber }));
+        }
+      });
+    }
+  }).catch(err => {
+    console.error('[WhatsApp] Link poll error:', err.message);
+  });
+});
+
+app.get('/api/whatsapp/link-status', checkToken, (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.status(400).json({ error: 'code required' });
+  res.json(whatsappKapso.getLinkStatus(code));
+});
+
+app.post('/api/whatsapp/unlink', checkToken, (req, res) => {
+  res.json(whatsappKapso.unlink());
+});
+
+app.post('/api/whatsapp/send', checkToken, async (req, res) => {
+  const { to, text } = req.body;
+  try {
+    const status = whatsappKapso.getStatus();
+    const phone = to || status.phoneNumber;
+    if (!phone) return res.status(400).json({ error: 'No linked phone' });
+    const result = await whatsappKapso.sendMessage(phone, text);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Claude Code CLI API ───
 
 app.get('/api/claude-cli/status', checkToken, async (req, res) => {
