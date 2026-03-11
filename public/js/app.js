@@ -291,6 +291,7 @@ function OnboardingPage({ onDone }) {
             installFn=${(cb) => API.installClaudeCLI(cb)}
             authFn=${() => API.startClaudeCLIAuth()}
             authLabel="Login"
+            onStatusChange=${setClaudeStatus}
           />
         </div>
       </div>
