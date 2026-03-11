@@ -1571,6 +1571,144 @@ function ConfigPage() {
       authFn=${() => API.startGwsCLIAuth()}
       authLabel="Login"
     />
+    <${WhatsAppCard} />
+  `;
+}
+
+// ─── WhatsApp Card ───
+
+function WhatsAppCard() {
+  const [status, setStatus] = useState(null);
+  const [linking, setLinking] = useState(false);
+  const [code, setCode] = useState(null);
+  const [pollTimer, setPollTimer] = useState(null);
+
+  const load = useCallback(async () => {
+    try { setStatus(await API.getWhatsAppStatus()); }
+    catch { setStatus({ linked: false }); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Listen for WS link confirmation
+  useEffect(() => {
+    const onLinked = (msg) => {
+      if (msg.phoneNumber) {
+        setStatus({ linked: true, phoneNumber: msg.phoneNumber });
+        setLinking(false);
+        setCode(null);
+        if (pollTimer) { clearInterval(pollTimer); setPollTimer(null); }
+        showToast('WhatsApp vinculado!');
+      }
+    };
+    API.on('whatsapp:linked', onLinked);
+    return () => API.off('whatsapp:linked', onLinked);
+  }, [pollTimer]);
+
+  const handleLink = useCallback(async () => {
+    setLinking(true);
+    try {
+      const result = await API.linkWhatsApp();
+      setCode(result.code);
+
+      // Poll link status every 3s
+      const t = setInterval(async () => {
+        try {
+          const ls = await API.getWhatsAppLinkStatus(result.code);
+          if (ls.status === 'linked') {
+            clearInterval(t);
+            setPollTimer(null);
+            setLinking(false);
+            setCode(null);
+            load();
+          } else if (ls.status === 'expired') {
+            clearInterval(t);
+            setPollTimer(null);
+            setLinking(false);
+            setCode(null);
+            showToast('Codigo expirou. Tente novamente.', 'error');
+          }
+        } catch {}
+      }, 3000);
+      setPollTimer(t);
+    } catch (err) {
+      showToast('Erro: ' + err.message, 'error');
+      setLinking(false);
+    }
+  }, [load]);
+
+  const handleUnlink = useCallback(async () => {
+    try {
+      await API.unlinkWhatsApp();
+      setStatus({ linked: false });
+      showToast('WhatsApp desvinculado');
+    } catch (err) {
+      showToast('Erro: ' + err.message, 'error');
+    }
+  }, []);
+
+  const formatPhone = (p) => {
+    if (!p) return '';
+    // Format as +XX (XX) XXXXX-XXXX for BR numbers
+    if (p.startsWith('55') && p.length >= 12) {
+      return '+' + p.slice(0, 2) + ' (' + p.slice(2, 4) + ') ' + p.slice(4, 9) + '-' + p.slice(9);
+    }
+    return '+' + p;
+  };
+
+  if (!status) {
+    return html`
+      <div class="card" style="margin-bottom: 12px">
+        <div style="display:flex; align-items:center; gap:12px">
+          <span style="font-size:24px">\uD83D\uDCF1</span>
+          <div style="flex:1">
+            <div class="card-title">WhatsApp</div>
+            <span style="color:var(--text-muted); font-size:13px">Verificando...</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  return html`
+    <div class="card" style="margin-bottom: 12px">
+      <div style="display:flex; align-items:center; gap:12px">
+        <span style="font-size:24px">\uD83D\uDCF1</span>
+        <div style="flex:1">
+          <div class="card-title">WhatsApp</div>
+          <div style="display:flex; align-items:center; gap:8px; margin-top:4px">
+            ${status.linked
+              ? html`
+                  <span class="status-tag completed">Vinculado</span>
+                  <span style="color:var(--text-muted); font-size:13px">${formatPhone(status.phoneNumber)}</span>
+                `
+              : html`<span class="status-tag stopped">Nao vinculado</span>`
+            }
+          </div>
+        </div>
+        <div style="display:flex; gap:8px">
+          ${status.linked
+            ? html`<button class="btn btn-sm btn-danger" onClick=${handleUnlink}>Desvincular</button>`
+            : html`<button class="btn btn-sm btn-primary" onClick=${handleLink} disabled=${linking}>
+                ${linking ? 'Aguardando...' : 'Sincronizar'}
+              </button>`
+          }
+        </div>
+      </div>
+      ${code && linking ? html`
+        <div style="margin-top:12px; padding:12px; background:var(--surface-hover); border-radius:8px; text-align:center">
+          <p style="margin:0 0 8px; font-size:13px; color:var(--text-secondary)">
+            Envie o codigo abaixo para <strong>+55 31 7359-8865</strong> no WhatsApp:
+          </p>
+          <div style="font-size:24px; font-weight:700; letter-spacing:4px; color:var(--accent); font-family:monospace">
+            ${code}
+          </div>
+          <p style="margin:8px 0 0; font-size:12px; color:var(--text-muted)">
+            Aguardando sua mensagem... (expira em 10 minutos)
+          </p>
+        </div>
+      ` : null}
+    </div>
   `;
 }
 
