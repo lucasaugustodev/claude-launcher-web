@@ -6,7 +6,8 @@
 const { chromium } = require('playwright');
 
 const LAUNCHER_URL = 'http://localhost:3002';
-const TEST_PHONE = '+5561999196929';
+// Use a fresh number never registered on Kapso before
+const TEST_PHONE = '+5511987654321';
 
 async function test() {
   console.log('[Test] Starting WhatsApp setup integration test');
