@@ -430,7 +430,9 @@ async function run(phoneNumber) {
 
         // Also check if the dialog has "already has" error
         if (dialogText.includes('already has') || dialogText.includes('Delete it first')) {
-          console.log('[Sandbox] Duplicate session error detected');
+          console.log('[Sandbox] ERROR: Phone number already registered in another Kapso project');
+          // Set a special activation code to signal the error
+          activationCode = '__DUPLICATE__';
           break;
         }
       } catch (e) {
