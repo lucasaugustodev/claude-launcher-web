@@ -121,8 +121,10 @@ async function getIncomingMessages() {
   });
   if (!resp.ok) return [];
   const data = await resp.json();
-  // Normalize: Kapso may return { messages: [...] } or array directly
-  return Array.isArray(data) ? data : (data.messages || data.data || []);
+  // Normalize: Kapso returns { data: [...] }
+  const msgs = Array.isArray(data) ? data : (data.data || data.messages || []);
+  // Only return inbound messages
+  return msgs.filter(m => !m.to && m.from);
 }
 
 // ─── Get messages from linked number only ───
