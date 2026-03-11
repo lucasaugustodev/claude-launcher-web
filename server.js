@@ -621,7 +621,7 @@ app.post('/api/marketplace/install-agents', checkToken, async (req, res) => {
     if (!fs.existsSync(cacheDir)) {
       fs.mkdirSync(cacheDir, { recursive: true });
       await new Promise((resolve, reject) => {
-        const proc = require('child_process').spawn('git', ['clone', '--depth', '1', `https://github.com/${pack.repo}.git`, cacheDir], { stdio: 'pipe' });
+        const proc = require('child_process').spawn('git', ['clone', '--depth', '1', `https://github.com/${pack.repo}.git`, cacheDir], { stdio: 'pipe', shell: true });
         proc.on('close', code => code === 0 ? resolve() : reject(new Error(`git clone failed (${code})`)));
         proc.on('error', reject);
       });
@@ -883,7 +883,7 @@ app.post('/api/marketplace/refresh-agents', checkToken, async (req, res) => {
     }
     fs.mkdirSync(cacheDir, { recursive: true });
     await new Promise((resolve, reject) => {
-      const proc = require('child_process').spawn('git', ['clone', '--depth', '1', `https://github.com/${pack.repo}.git`, cacheDir], { stdio: 'pipe' });
+      const proc = require('child_process').spawn('git', ['clone', '--depth', '1', `https://github.com/${pack.repo}.git`, cacheDir], { stdio: 'pipe', shell: true });
       proc.on('close', code => code === 0 ? resolve() : reject(new Error(`git clone failed (${code})`)));
       proc.on('error', reject);
     });
