@@ -284,13 +284,17 @@ async function run(phoneNumber) {
     // Step 6: Start new sandbox session
     console.log('\n=== Step 6: Start sandbox session ===');
 
-    // Look for "Start new session" or any start/add button
-    const startBtn = page.locator('button, a').filter({ hasText: /start|new.*session|add.*number|add.*phone/i }).first();
-    if (await startBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await startBtn.click();
+    // Click "+ Start testing session" button specifically
+    const startTestBtn = page.locator('button, a').filter({ hasText: /start testing session/i }).first();
+    if (await startTestBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await startTestBtn.click();
       await page.waitForTimeout(2000);
-      console.log('[Sandbox] Clicked start/add button');
+      console.log('[Sandbox] Clicked "Start testing session"');
+    } else {
+      console.log('[Sandbox] "Start testing session" button not found');
     }
+
+    await page.screenshot({ path: 'kapso-step10-after-start.png' });
 
     // Fill phone number if there's an input
     const phoneInput = page.locator('input[type="tel"], input[name*="phone"], input[placeholder*="phone" i], input[placeholder*="number" i]').first();
@@ -298,24 +302,22 @@ async function run(phoneNumber) {
       await phoneInput.fill(phone);
       console.log(`[Sandbox] Phone filled: ${phone}`);
 
-      // Submit
-      const submitPhoneBtn = page.locator('button').filter({ hasText: /create|send|submit|start|add|save/i }).first();
+      await page.screenshot({ path: 'kapso-step10b-phone-filled.png' });
+
+      // Submit - look for button inside modal/form
+      const submitPhoneBtn = page.locator('button').filter({ hasText: /create|send|submit|start|add|save/i }).last();
       if (await submitPhoneBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
         await submitPhoneBtn.click();
         await page.waitForTimeout(3000);
         console.log('[Sandbox] Submitted phone');
       }
+    } else {
+      console.log('[Sandbox] No phone input found');
     }
 
-    await page.screenshot({ path: 'kapso-step10-session-result.png' });
+    await page.screenshot({ path: 'kapso-step10c-session-result.png' });
     const sessionText = await page.textContent('body').catch(() => '');
     console.log(`[Session] Result: ${sessionText.replace(/\s+/g, ' ').slice(0, 500)}`);
-
-    // Look for sandbox code
-    const codeMatch = sessionText.match(/code[:\s]+(\w{4,8})/i);
-    if (codeMatch) {
-      console.log(`[Sandbox] Verification code: ${codeMatch[1]}`);
-    }
 
     // Step 7: Create API Key via sidebar
     console.log('\n=== Step 7: Create API Key ===');
