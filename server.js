@@ -1760,15 +1760,6 @@ app.post('/api/schedules/:id/run-now', checkToken, async (req, res) => {
 const wss = new WebSocketServer({ server, path: '/ws' });
 
 wss.on('connection', (ws, req) => {
-  // Validate auth via token query param
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const token = url.searchParams.get('token');
-
-  if (!token || !activeSessions.has(token)) {
-    ws.close(4001, 'Unauthorized');
-    return;
-  }
-
   // Track which sessions this WS is attached to
   const attachedSessions = new Map();
 
