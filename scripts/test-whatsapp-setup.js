@@ -52,15 +52,24 @@ async function test() {
     }
     await page.screenshot({ path: 'test-wa-03-whatsapp-card.png' });
 
-    // Step 4: Click "Vincular" button
+    // Step 4: Unlink if already linked, then click "Vincular"
     console.log('\n=== Step 4: Click Vincular ===');
-    const vincularBtn = page.locator('button').filter({ hasText: /vincular|sincronizar/i }).first();
+    const unlinkBtn = page.locator('button').filter({ hasText: /desvincular/i }).first();
+    if (await unlinkBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      console.log('[Test] Already linked, unlinking first...');
+      await unlinkBtn.click();
+      await page.waitForTimeout(2000);
+    }
+
+    const vincularBtn = page.locator('button').filter({ hasText: /^vincular$/i }).first();
     if (await vincularBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
       await vincularBtn.click();
       await page.waitForTimeout(1000);
       console.log('[Test] Clicked Vincular');
     } else {
       console.log('[Test] Vincular button not found');
+      const btns = await page.locator('button').allTextContents();
+      console.log(`[Test] Buttons on page: ${btns.join(', ')}`);
     }
     await page.screenshot({ path: 'test-wa-04-after-vincular.png' });
 
