@@ -28,6 +28,9 @@ const server = http.createServer(app);
 // Onboarding flag file
 const ONBOARDING_FILE = path.join(__dirname, '.onboarding-done');
 
+// No-op auth middleware (kept as checkToken so all routes still work)
+function checkToken(req, res, next) { next(); }
+
 app.use(express.json({ limit: '5mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
