@@ -617,6 +617,31 @@ const API = {
     });
   },
 
+  // ─── WhatsApp ───
+
+  getWhatsAppStatus() {
+    return this.fetch('api/whatsapp/status');
+  },
+
+  linkWhatsApp() {
+    return this.fetch('api/whatsapp/link', { method: 'POST' });
+  },
+
+  getWhatsAppLinkStatus(code) {
+    return this.fetch('api/whatsapp/link-status?code=' + encodeURIComponent(code));
+  },
+
+  unlinkWhatsApp() {
+    return this.fetch('api/whatsapp/unlink', { method: 'POST' });
+  },
+
+  sendWhatsApp(text, to) {
+    return this.fetch('api/whatsapp/send', {
+      method: 'POST',
+      body: JSON.stringify({ text, to }),
+    });
+  },
+
   // ─── Marketplace ───
 
   getMarketplaceCatalog() {
