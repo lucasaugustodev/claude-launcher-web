@@ -248,67 +248,114 @@ function HistoryPage() {
   `;
 }
 
-// ─── Setup Page ───
+// ─── Onboarding Page ───
 
-function SetupPage({ onDone }) {
-  const [user, setUser] = useState('');
-  const [pass, setPass] = useState('');
-  const [pass2, setPass2] = useState('');
+function OnboardingPage({ onDone }) {
+  const [claudeStatus, setClaudeStatus] = useState(null);
+  const [pollTimer, setPollTimer] = useState(null);
 
-  const doSetup = async () => {
-    if (!user || user.length < 3) { showToast('Usuario deve ter no minimo 3 caracteres', 'error'); return; }
-    if (!pass || pass.length < 4) { showToast('Senha deve ter no minimo 4 caracteres', 'error'); return; }
-    if (pass !== pass2) { showToast('Senhas nao conferem', 'error'); return; }
+  // Poll Claude Code status every 3s to detect auth completion
+  useEffect(() => {
+    let active = true;
+    const poll = async () => {
+      try {
+        const s = await API.getClaudeCLIStatus();
+        if (active) setClaudeStatus(s);
+      } catch {}
+    };
+    poll();
+    const t = setInterval(poll, 3000);
+    setPollTimer(t);
+    return () => { active = false; clearInterval(t); };
+  }, []);
+
+  const claudeReady = claudeStatus && claudeStatus.installed && (claudeStatus.authenticated || claudeStatus.configured);
+
+  const handleContinue = async () => {
+    if (!claudeReady) {
+      showToast('Faca login no Claude Code para continuar', 'error');
+      return;
+    }
     try {
-      await API.setup(user, pass);
-      showToast('Conta criada com sucesso!');
+      await fetch('/api/onboarding/complete', { method: 'POST' });
+      if (pollTimer) clearInterval(pollTimer);
       onDone();
-    } catch (err) { showToast(err.message, 'error'); }
+    } catch (err) {
+      showToast('Erro ao salvar: ' + err.message, 'error');
+    }
   };
 
   return html`
-    <div style="max-width:400px;margin:60px auto">
+    <div style="max-width:560px;margin:40px auto;padding:0 16px">
       <h2 style="text-align:center;margin-bottom:8px;color:var(--accent)">Claude Launcher</h2>
-      <p style="text-align:center;color:var(--text-muted);margin-bottom:24px;font-size:14px">Primeiro acesso - crie sua conta</p>
-      <div class="card">
-        <div class="form-group"><label>Usuario</label>
-          <input type="text" value=${user} onInput=${e => setUser(e.target.value)} placeholder="Seu usuario" /></div>
-        <div class="form-group"><label>Senha</label>
-          <input type="password" value=${pass} onInput=${e => setPass(e.target.value)} placeholder="Sua senha" /></div>
-        <div class="form-group"><label>Confirmar Senha</label>
-          <input type="password" value=${pass2} onInput=${e => setPass2(e.target.value)} placeholder="Repita a senha"
-            onKeyDown=${e => { if (e.key === 'Enter') doSetup(); }} /></div>
-        <button class="btn btn-primary" style="width:100%;justify-content:center" onClick=${doSetup}>Criar Conta</button>
+      <p style="text-align:center;color:var(--text-muted);margin-bottom:8px;font-size:14px">
+        Bem-vindo! Configure suas ferramentas CLI para comecar.
+      </p>
+      <p style="text-align:center;color:var(--text-secondary);margin-bottom:24px;font-size:13px">
+        O login no <strong>Claude Code</strong> e obrigatorio. As demais ferramentas sao recomendadas.
+      </p>
+
+      <div style="position:relative">
+        <div style="position:absolute;left:-8px;top:0;bottom:0;width:3px;background:${claudeReady ? 'var(--accent)' : '#f38ba8'};border-radius:2px"></div>
+        <div style="padding-left:8px">
+          <div style="font-size:12px;font-weight:600;color:${claudeReady ? 'var(--accent)' : '#f38ba8'};margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">
+            ${claudeReady ? 'Obrigatorio - Pronto!' : 'Obrigatorio'}
+          </div>
+          <${ConfigToolCard}
+            name="Claude Code"
+            icon="\u{1F916}"
+            statusFn=${() => API.getClaudeCLIStatus()}
+            installFn=${(cb) => API.installClaudeCLI(cb)}
+            authFn=${() => API.startClaudeCLIAuth()}
+            authLabel="Login"
+          />
+        </div>
       </div>
-    </div>
-  `;
-}
 
-// ─── Login Page ───
-
-function LoginPage({ onDone }) {
-  const [user, setUser] = useState('');
-  const [pass, setPass] = useState('');
-
-  const doLogin = async () => {
-    if (!user || !pass) { showToast('Preencha usuario e senha', 'error'); return; }
-    try {
-      await API.login(user, pass);
-      onDone();
-    } catch (err) { showToast(err.message, 'error'); }
-  };
-
-  return html`
-    <div style="max-width:360px;margin:80px auto">
-      <h2 style="text-align:center;margin-bottom:24px;color:var(--accent)">Claude Launcher</h2>
-      <div class="card">
-        <div class="form-group"><label>Usuario</label>
-          <input type="text" value=${user} onInput=${e => setUser(e.target.value)} placeholder="Seu usuario" /></div>
-        <div class="form-group"><label>Senha</label>
-          <input type="password" value=${pass} onInput=${e => setPass(e.target.value)} placeholder="Sua senha"
-            onKeyDown=${e => { if (e.key === 'Enter') doLogin(); }} /></div>
-        <button class="btn btn-primary" style="width:100%;justify-content:center" onClick=${doLogin}>Entrar</button>
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin:16px 0 6px;text-transform:uppercase;letter-spacing:0.5px">
+        Recomendado
       </div>
+      <${ConfigToolCard}
+        name="GitHub CLI"
+        icon="\u{1F4BB}"
+        statusFn=${() => API.getGitHubCLIStatus()}
+        installFn=${(cb) => API.installGitHubCLI(cb)}
+        authFn=${() => API.startGitHubCLIAuth()}
+        authLabel="Login"
+      />
+      <${ConfigToolCard}
+        name="Gemini CLI"
+        icon="\u2728"
+        statusFn=${() => API.getGeminiCLIStatus()}
+        installFn=${(cb) => API.installGeminiCLI(cb)}
+        authFn=${() => API.startGeminiCLIAuth()}
+        authLabel="Login"
+      />
+      <${ConfigToolCard}
+        name="Cline CLI"
+        icon="\u26A1"
+        statusFn=${() => API.getClineCLIStatus()}
+        installFn=${(cb) => API.installClineCLI(cb)}
+        authFn=${() => API.startClineCLIAuth()}
+        authLabel="Login"
+      />
+      <${ConfigToolCard}
+        name="Google Workspace CLI"
+        icon="\uD83C\uDFE2"
+        statusFn=${() => API.getGwsCLIStatus()}
+        installFn=${(cb) => API.installGwsCLI(cb)}
+        authFn=${() => API.startGwsCLIAuth()}
+        authLabel="Login"
+      />
+
+      <button
+        class="btn ${claudeReady ? 'btn-primary' : ''}"
+        style="width:100%;justify-content:center;margin-top:20px;margin-bottom:40px;padding:12px;font-size:15px;${!claudeReady ? 'opacity:0.5;cursor:not-allowed;background:var(--surface-hover);color:var(--text-muted)' : ''}"
+        onClick=${handleContinue}
+        disabled=${!claudeReady}
+      >
+        ${claudeReady ? 'Continuar' : 'Faca login no Claude Code para continuar'}
+      </button>
     </div>
   `;
 }
