@@ -19,14 +19,24 @@ function getEnvWithGhPath() {
   return { ...process.env, PATH: missing.join(';') + ';' + currentPath };
 }
 
-// ─── Check if gh CLI is installed ───
+// ─── Check if gh CLI is installed (with retry for cold-start delays) ───
 function checkInstalled() {
   return new Promise((resolve) => {
-    execFile('gh', ['--version'], { timeout: 5000, shell: true, env: getEnvWithGhPath() }, (err, stdout) => {
-      if (err) return resolve({ installed: false, version: null });
-      const match = stdout.match(/gh version ([\d.]+)/);
-      resolve({ installed: true, version: match ? match[1] : stdout.trim() });
-    });
+    const attempt = (retries) => {
+      execFile('gh', ['--version'], { timeout: 15000, shell: true, env: getEnvWithGhPath() }, (err, stdout) => {
+        if (err) {
+          if (retries > 0) return setTimeout(() => attempt(retries - 1), 1000);
+          // Last resort: check if gh.exe exists on disk
+          const ghExists = GH_PATHS_WIN.some(p => {
+            try { return fs.existsSync(path.join(p, 'gh.exe')); } catch { return false; }
+          });
+          return resolve({ installed: ghExists, version: null });
+        }
+        const match = stdout.match(/gh version ([\d.]+)/);
+        resolve({ installed: true, version: match ? match[1] : stdout.trim() });
+      });
+    };
+    attempt(2);
   });
 }
 
