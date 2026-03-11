@@ -252,22 +252,6 @@ function HistoryPage() {
 
 function OnboardingPage({ onDone }) {
   const [claudeStatus, setClaudeStatus] = useState(null);
-  const [pollTimer, setPollTimer] = useState(null);
-
-  // Poll Claude Code status every 3s to detect auth completion
-  useEffect(() => {
-    let active = true;
-    const poll = async () => {
-      try {
-        const s = await API.getClaudeCLIStatus();
-        if (active) setClaudeStatus(s);
-      } catch {}
-    };
-    poll();
-    const t = setInterval(poll, 3000);
-    setPollTimer(t);
-    return () => { active = false; clearInterval(t); };
-  }, []);
 
   const claudeReady = claudeStatus && claudeStatus.installed && (claudeStatus.authenticated || claudeStatus.configured);
 
@@ -278,7 +262,6 @@ function OnboardingPage({ onDone }) {
     }
     try {
       await fetch('/api/onboarding/complete', { method: 'POST' });
-      if (pollTimer) clearInterval(pollTimer);
       onDone();
     } catch (err) {
       showToast('Erro ao salvar: ' + err.message, 'error');
