@@ -46,8 +46,16 @@ app.get('/api/health', (req, res) => {
 });
 
 // Onboarding status (replaces auth status)
-app.get('/api/auth/status', (req, res) => {
-  const onboardingDone = fs.existsSync(ONBOARDING_FILE);
+// If Claude Code is not authenticated, force onboarding even if it was completed before
+app.get('/api/auth/status', async (req, res) => {
+  const flagExists = fs.existsSync(ONBOARDING_FILE);
+  let claudeAuthed = false;
+  try {
+    const st = await claudeCli.getStatus();
+    claudeAuthed = st.installed && (st.authenticated || st.configured);
+  } catch {}
+  // Only consider onboarding done if flag exists AND Claude Code is authenticated
+  const onboardingDone = flagExists && claudeAuthed;
   res.json({
     needsSetup: false,
     loggedIn: true,
