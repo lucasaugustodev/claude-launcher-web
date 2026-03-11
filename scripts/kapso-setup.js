@@ -322,6 +322,10 @@ async function run(phoneNumber) {
     // Step 7: Create API Key via sidebar
     console.log('\n=== Step 7: Create API Key ===');
 
+    // Close any open modal/overlay before navigating
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+
     const apiKeysLink = page.locator('a').filter({ hasText: /api\s*keys/i }).first();
     if (await apiKeysLink.isVisible({ timeout: 5000 }).catch(() => false)) {
       await apiKeysLink.click();
@@ -330,21 +334,34 @@ async function run(phoneNumber) {
 
       await page.screenshot({ path: 'kapso-step11-apikeys-page.png' });
 
-      const createKeyBtn = page.locator('button').filter({ hasText: /create|new|generate/i }).first();
-      if (await createKeyBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      // Click "+ Create new API key" or "+ Create API Key"
+      const createKeyBtn = page.locator('button, a').filter({ hasText: /create.*api\s*key/i }).first();
+      if (await createKeyBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
         await createKeyBtn.click();
         await page.waitForTimeout(2000);
+        console.log('[API] Clicked Create API Key');
 
+        await page.screenshot({ path: 'kapso-step12-create-key-form.png' });
+
+        // Fill key name if input is visible
         const keyNameInput = page.locator('input[name*="name"], input[placeholder*="name" i]').first();
         if (await keyNameInput.isVisible({ timeout: 3000 }).catch(() => false)) {
           await keyNameInput.fill('hiveclip-auto');
-          const saveBtn = page.locator('button').filter({ hasText: /create|save|generate/i }).first();
-          await saveBtn.click();
-          await page.waitForTimeout(3000);
+          console.log('[API] Named key: hiveclip-auto');
+
+          // Click the save/create button inside the modal
+          const saveBtn = page.locator('button').filter({ hasText: /^create$|save|generate/i }).last();
+          if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+            await saveBtn.click();
+            await page.waitForTimeout(3000);
+            console.log('[API] Saved key');
+          }
         }
+      } else {
+        console.log('[API] Create API Key button not found');
       }
 
-      await page.screenshot({ path: 'kapso-step12-apikey-created.png' });
+      await page.screenshot({ path: 'kapso-step13-apikey-result.png' });
 
       // Try to capture the API key from the page
       const keyPageText = await page.textContent('body').catch(() => '');
