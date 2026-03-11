@@ -12,6 +12,7 @@ const clineCli = require('./cline-cli');
 const geminiCli = require('./gemini-cli');
 const gwsCli = require('./gws-cli');
 const claudeCli = require('./claude-cli');
+const whatsappKapso = require('./whatsapp-kapso');
 const scheduler = require('./scheduler');
 const multer = require('multer');
 const fs = require('fs');
