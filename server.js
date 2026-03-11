@@ -2554,7 +2554,8 @@ function startWhatsappBridge() {
         const msgId = msg.id || msg.message_id;
         if (!msgId || msgId === lastWhatsappMsgId) continue;
 
-        const body = (msg.text || msg.body || '').trim();
+        const rawText = msg.text;
+        const body = (typeof rawText === 'string' ? rawText : (rawText && rawText.body) || msg.body || '').trim();
         if (!body || body.startsWith('HIVE-')) continue; // Skip link codes
 
         lastWhatsappMsgId = msgId;
