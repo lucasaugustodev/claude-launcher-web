@@ -307,7 +307,6 @@ function spawnStreamJsonSession(sessionId, cwd, env, extraFlags, initialPrompt) 
       if (!trimmed) continue;
       try {
         const event = JSON.parse(trimmed);
-        console.log(`[STREAM-JSON] event ${sessionId.slice(0,8)}: type=${event.type}, subtype=${event.subtype || ''}`);
         const msg = JSON.stringify({ type: 'stream-json', sessionId, event });
         for (const send of handle.listeners) {
           try { send(msg); } catch {}
