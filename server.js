@@ -567,13 +567,15 @@ app.get('/api/marketplace/catalog', checkToken, async (req, res) => {
     const packs = [];
     for (const pack of MARKETPLACE_CATALOG.agentPacks) {
       const agents = [];
-      // Try to read from local clone cache first
+      // Try to read from local clone cache first, then pre-installed dir
       const cacheDir = path.join(os.tmpdir(), 'cl-marketplace', pack.id);
-      if (fs.existsSync(cacheDir)) {
-        const files = fs.readdirSync(cacheDir).filter(f => f.endsWith('.md') && f !== 'README.md');
+      const preInstalledPackDir = path.join('C:\\', pack.id);
+      const sourceDir = fs.existsSync(cacheDir) ? cacheDir : (fs.existsSync(preInstalledPackDir) ? preInstalledPackDir : null);
+      if (sourceDir) {
+        const files = fs.readdirSync(sourceDir).filter(f => f.endsWith('.md') && f !== 'README.md');
         for (const f of files) {
           try {
-            const raw = fs.readFileSync(path.join(cacheDir, f), 'utf8');
+            const raw = fs.readFileSync(path.join(sourceDir, f), 'utf8');
             const fm = parseYamlFrontmatter(raw);
             agents.push({
               filename: f,
