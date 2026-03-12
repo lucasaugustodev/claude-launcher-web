@@ -1,3 +1,11 @@
+// Prevent uncaught exceptions from crashing the server
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught exception (server kept alive):', err.message);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('[FATAL] Unhandled rejection (server kept alive):', err && err.message || err);
+});
+
 const express = require('express');
 const http = require('http');
 const crypto = require('crypto');
