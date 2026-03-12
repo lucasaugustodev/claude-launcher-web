@@ -411,10 +411,14 @@ async function launchSession(profileId, { streamJson, prompt } = {}) {
   const flags = [];
   if (profile.mode === 'bypass') flags.push('--dangerously-skip-permissions');
 
-  const initialPrompt = prompt || profile.initialPrompt || null;
+  let initialPrompt = prompt || profile.initialPrompt || null;
 
   let handle;
   if (streamJson) {
+    // Stream-json mode requires an initial prompt to kick-start Claude Code
+    if (!initialPrompt) {
+      initialPrompt = 'Ola! Estou pronto para trabalhar neste projeto. Como posso ajudar?';
+    }
     handle = spawnStreamJsonSession(sessionId, cwd, env, flags, initialPrompt);
   } else {
     const shellAndArgs = buildClaudeCommand(flags, initialPrompt);
