@@ -281,6 +281,7 @@ function spawnStreamJsonSession(sessionId, cwd, env, extraFlags, initialPrompt) 
     exitCode: null,
     streamJson: true,
     outputFile,
+    claudeSessionId: null, // Claude Code's internal session ID (from system.init)
   };
 
   let ndjsonBuffer = '';
