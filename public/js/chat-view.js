@@ -22,7 +22,7 @@ const ChatViewManager = {
   open(sessionId, { streamJson } = {}) {
     this._currentSessionId = sessionId;
     this._messages = [];
-    this._status = 'input_wait';
+    this._status = 'thinking';
     this._textBuffer = '';
     this._terminalFallback = false;
     this._fallbackTerm = null;
@@ -32,7 +32,6 @@ const ChatViewManager = {
     this._registerHandlers(sessionId);
     API.attachSession(sessionId);
 
-    this._addMessage('system', 'Sessao iniciada. Digite sua mensagem.');
     this._renderMessages();
 
     document.getElementById('terminal-overlay').style.display = 'flex';
