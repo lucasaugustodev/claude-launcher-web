@@ -19,10 +19,10 @@ const ChatViewManager = {
   _fallbackFit: null,
   _fallbackResizeHandler: null,
 
-  open(sessionId, { streamJson } = {}) {
+  open(sessionId, { streamJson, previousSessionId } = {}) {
     this._currentSessionId = sessionId;
     this._messages = [];
-    this._status = 'thinking';
+    this._status = previousSessionId ? 'input_wait' : 'thinking';
     this._textBuffer = '';
     this._terminalFallback = false;
     this._fallbackTerm = null;
@@ -31,6 +31,21 @@ const ChatViewManager = {
     this._buildUI();
     this._registerHandlers(sessionId);
     API.attachSession(sessionId);
+
+    // If resuming, load previous session history first
+    if (previousSessionId) {
+      var self = this;
+      API.getSessionOutputData(previousSessionId).then(function(data) {
+        if (data && data.output) {
+          self._replayOutput(data.output);
+        }
+        self._addMessage('system', 'Sessao retomada. Digite sua mensagem.');
+        self._renderMessages();
+      }).catch(function() {
+        self._addMessage('system', 'Sessao retomada. Digite sua mensagem.');
+        self._renderMessages();
+      });
+    }
 
     this._renderMessages();
 
