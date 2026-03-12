@@ -2011,3 +2011,4 @@ function App() {
 
 // ─── Mount ───
 preactRender(html`<${App} />`, document.getElementById('content'));
+x
