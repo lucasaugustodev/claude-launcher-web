@@ -85,47 +85,6 @@ function showProfileModal(profile = null, onSave) {
   };
 
   // Show/hide strategy based on repo selection
-  const repoSelect = modal.querySelector('#pf-github-repo');
-  const strategyGroup = modal.querySelector('#pf-strategy-group');
-  repoSelect.addEventListener('change', () => {
-    strategyGroup.style.display = repoSelect.value ? 'block' : 'none';
-  });
-
-  // Load GitHub repos into dropdown
-  async function loadRepos() {
-    // Remove all options except "Nenhum"
-    while (repoSelect.options.length > 1) repoSelect.remove(1);
-    try {
-      const { repos } = await API.listGitHubRepos();
-      for (const r of repos) {
-        const opt = document.createElement('option');
-        opt.value = r.fullName;
-        opt.textContent = `${r.fullName}${r.private ? ' (private)' : ''}`;
-        if (profile?.githubRepo === r.fullName) opt.selected = true;
-        repoSelect.appendChild(opt);
-      }
-      if (profile?.githubRepo) {
-        strategyGroup.style.display = 'block';
-      }
-    } catch {
-      // GitHub not connected
-    }
-  }
-
-  loadRepos();
-
-  // Refresh repos button
-  modal.querySelector('#pf-refresh-repos').onclick = async (e) => {
-    e.preventDefault();
-    const btn = e.target;
-    btn.textContent = '...';
-    btn.disabled = true;
-    await loadRepos();
-    btn.textContent = 'Atualizar lista';
-    btn.disabled = false;
-    showToast('Lista atualizada');
-  };
-
   // Focus name field
   setTimeout(() => modal.querySelector('#pf-name').focus(), 100);
 }
