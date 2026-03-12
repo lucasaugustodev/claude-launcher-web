@@ -759,19 +759,6 @@
     show: showBubble,
     hide: hideBubble,
     open: function() { if (!FC.open) togglePanel(); },
-    openWithSession: function(sessionId, sessionName) {
-      // Connect floating chat to an existing session (launched from projects)
-      clearSession();
-      saveSession(sessionId);
-      FC.messages = [];
-      FC.voiceBuffer = '';
-      FC.status = 'thinking';
-      addMessage('system', sessionName ? 'Sessao: ' + sessionName : 'Sessao iniciada.');
-      registerHandlers(sessionId);
-      API.attachSession(sessionId);
-      updateStatus();
-      if (!FC.open) togglePanel();
-    },
   };
 
   // Start when DOM ready
