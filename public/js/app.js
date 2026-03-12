@@ -1835,21 +1835,22 @@ async function autoInstallMarketplace() {
   try {
     const catalog = await API.getMarketplaceCatalog();
 
-    // Install agents one by one, don't let one failure block the rest
+    // Install agents only if pack is cached (pre-installed or previously cloned)
     for (const pack of catalog.agentPacks) {
+      if (!pack.cached) { console.log('[AutoInstall] Skipping uncached pack:', pack.id); continue; }
+      const allInstalled = pack.agents.length > 0 && pack.agents.every(a => a.installed);
+      if (allInstalled) { console.log('[AutoInstall] All agents already installed:', pack.id); continue; }
       try {
-        if (!pack.cached) await API.refreshAgentPack(pack.id);
         await API.installAgents(pack.id);
       } catch (e) { console.warn('[AutoInstall] Agent pack skipped:', pack.id, e.message); }
     }
 
-    // Install plugins one by one
+    // Install plugins only if not already installed
     for (const plugin of (catalog.plugins || [])) {
-      if (!plugin.installed) {
-        try {
-          await API.installPlugin(plugin.id);
-        } catch (e) { console.warn('[AutoInstall] Plugin skipped:', plugin.id, e.message); }
-      }
+      if (plugin.installed) { console.log('[AutoInstall] Plugin already installed:', plugin.id); continue; }
+      try {
+        await API.installPlugin(plugin.id);
+      } catch (e) { console.warn('[AutoInstall] Plugin skipped:', plugin.id, e.message); }
     }
     showToast('Marketplace configurado!');
   } catch (err) {
