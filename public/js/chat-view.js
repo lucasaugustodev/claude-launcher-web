@@ -163,6 +163,55 @@ const ChatViewManager = {
     }
   },
 
+  _replayOutput(output) {
+    if (!output) return;
+    var lines = output.split('\n');
+    var textBuf = '';
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim();
+      if (!line) continue;
+      try {
+        var event = JSON.parse(line);
+        if (event.type === 'assistant' && event.message && event.message.content) {
+          var content = event.message.content;
+          for (var j = 0; j < content.length; j++) {
+            var block = content[j];
+            if (block.type === 'text' && block.text) {
+              textBuf += block.text;
+            } else if (block.type === 'tool_use') {
+              // Flush accumulated text before tool
+              if (textBuf.trim()) {
+                this._addMessage('assistant', textBuf.trim());
+                textBuf = '';
+              }
+              var toolName = block.name || 'Tool';
+              var snippet = '';
+              try { snippet = JSON.stringify(block.input || {}).substring(0, 200); } catch (e) {}
+              this._addMessage('tool', toolName + (snippet ? ': ' + snippet : ''));
+            }
+          }
+        } else if (event.type === 'user_input' && event.text) {
+          // Flush text before user message
+          if (textBuf.trim()) {
+            this._addMessage('assistant', textBuf.trim());
+            textBuf = '';
+          }
+          this._addMessage('user', event.text);
+        } else if (event.type === 'result') {
+          // Flush remaining text
+          if (textBuf.trim()) {
+            this._addMessage('assistant', textBuf.trim());
+            textBuf = '';
+          }
+        }
+      } catch (e) {} // skip non-JSON
+    }
+    // Flush any remaining text
+    if (textBuf.trim()) {
+      this._addMessage('assistant', textBuf.trim());
+    }
+  },
+
   _flushTextBuffer() {
     clearTimeout(this._flushTimer);
     var text = this._textBuffer.trim();
