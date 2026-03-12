@@ -2011,8 +2011,10 @@ wss.on('connection', (ws, req) => {
 
       case 'stream-json-input': {
         const { sessionId, message } = msg;
+        console.log(`[WS] stream-json-input received: sessionId=${sessionId}, message=${(message || '').substring(0, 100)}`);
         if (sessionId && message) {
-          ptyManager.sendStreamJsonInput(sessionId, message);
+          const result = ptyManager.sendStreamJsonInput(sessionId, message);
+          console.log(`[WS] sendStreamJsonInput result: ${result}`);
         }
         break;
       }
