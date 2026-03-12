@@ -573,11 +573,12 @@ function resumeSession(sessionId, { streamJson } = {}) {
   if (mode === 'bypass') flags.push('--dangerously-skip-permissions');
 
   const displayName = `${oldSession.profileName || ''} (resumed)`.trim();
-  const resumePrompt = 'Continue de onde paramos. O que foi feito ate agora?';
 
   let handle;
   if (streamJson) {
-    handle = spawnStreamJsonSession(newSessionId, cwd, env, flags, resumePrompt);
+    // --resume/--continue already loads conversation context, no initial prompt needed
+    // Claude Code will emit system.init and wait for user input
+    handle = spawnStreamJsonSession(newSessionId, cwd, env, flags, null);
   } else {
     const shellAndArgs = buildClaudeCommand(flags, null);
     handle = spawnSession(newSessionId, shellAndArgs, cwd, env);
