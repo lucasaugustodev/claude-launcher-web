@@ -1834,20 +1834,26 @@ function ContentRouter({ page }) {
 async function autoInstallMarketplace() {
   try {
     const catalog = await API.getMarketplaceCatalog();
+
+    // Install agents one by one, don't let one failure block the rest
     for (const pack of catalog.agentPacks) {
-      if (!pack.cached) {
-        await API.refreshAgentPack(pack.id);
-      }
-      await API.installAgents(pack.id);
+      try {
+        if (!pack.cached) await API.refreshAgentPack(pack.id);
+        await API.installAgents(pack.id);
+      } catch (e) { console.warn('[AutoInstall] Agent pack skipped:', pack.id, e.message); }
     }
+
+    // Install plugins one by one
     for (const plugin of (catalog.plugins || [])) {
       if (!plugin.installed) {
-        await API.installPlugin(plugin.id);
+        try {
+          await API.installPlugin(plugin.id);
+        } catch (e) { console.warn('[AutoInstall] Plugin skipped:', plugin.id, e.message); }
       }
     }
-    showToast('Marketplace instalado automaticamente!');
+    showToast('Marketplace configurado!');
   } catch (err) {
-    console.error('[AutoInstall] Marketplace error:', err);
+    console.warn('[AutoInstall] Marketplace check skipped:', err.message);
   }
 }
 
