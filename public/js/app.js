@@ -57,10 +57,8 @@ function ProfilesPage() {
               <div class="card" key=${p.id}>
                 <div class="card-title">${p.name}</div>
                 <div class="card-meta">
-                  <span>Modo: ${p.mode === 'bypass' ? 'Bypass' : 'Normal'}</span>
-                  <span>Dir: ${p.workingDirectory || '(padrao)'}</span>
-                  ${p.initialPrompt ? html`<span>Prompt: ${p.initialPrompt.substring(0, 50)}...</span>` : null}
-                  ${p.githubRepo ? html`<span style="color:var(--success)">Repo: ${p.githubRepo} (${p.syncStrategy === 'main' ? 'commit direto' : 'branch+PR'})</span>` : null}
+                  ${p.description ? html`<span>${p.description}</span>` : null}
+                  <span style="font-size:11px;color:var(--text-muted)">${p.workingDirectory || ''}</span>
                 </div>
                 <div class="card-actions">
                   <button class="btn btn-success btn-sm" onClick=${async () => {
