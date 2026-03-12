@@ -61,17 +61,18 @@ function showProfileModal(profile = null, onSave) {
   overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
 
   overlay.querySelector('#pf-save').onclick = async () => {
-    const repoSelect = modal.querySelector('#pf-github-repo');
-    const selectedRepo = repoSelect.value;
+    const name = modal.querySelector('#pf-name').value.trim();
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
     const data = {
-      name: modal.querySelector('#pf-name').value.trim(),
-      workingDirectory: modal.querySelector('#pf-cwd').value.trim(),
-      mode: modal.querySelector('#pf-mode').value,
-      initialPrompt: modal.querySelector('#pf-prompt').value.trim(),
-      nodeMemory: parseInt(modal.querySelector('#pf-mem').value) || null,
-      githubRepo: selectedRepo || null,
-      syncStrategy: selectedRepo ? modal.querySelector('#pf-sync-strategy').value : null,
+      name,
+      description: modal.querySelector('#pf-desc').value.trim(),
+      workingDirectory: profile?.workingDirectory || `C:\\projects\\${slug}`,
+      mode: 'bypass',
+      initialPrompt: '',
+      nodeMemory: null,
+      githubRepo: null,
+      syncStrategy: null,
     };
 
     if (!data.name) {
