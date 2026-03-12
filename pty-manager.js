@@ -659,14 +659,10 @@ function resizePty(sessionId, cols, rows) {
 
 function sendStreamJsonInput(sessionId, message) {
   const handle = handles.get(sessionId);
-  if (!handle) { console.log(`[STREAM-JSON-INPUT] No handle for ${sessionId}`); return false; }
-  if (handle.exited) { console.log(`[STREAM-JSON-INPUT] Handle exited for ${sessionId}`); return false; }
-  if (!handle.streamJson) { console.log(`[STREAM-JSON-INPUT] Not stream-json for ${sessionId}`); return false; }
+  if (!handle || handle.exited || !handle.streamJson) return false;
   // Claude Code stream-json expects: {"type":"user","message":{"role":"user","content":"..."}}
   const json = JSON.stringify({ type: 'user', message: { role: 'user', content: message } }) + '\n';
-  console.log(`[STREAM-JSON-INPUT] Writing to stdin for ${sessionId}: ${json.substring(0, 200)}`);
-  const ok = handle.childProcess.stdin.write(json);
-  console.log(`[STREAM-JSON-INPUT] stdin.write returned: ${ok}, stdin.writable: ${handle.childProcess.stdin.writable}, pid: ${handle.pid}`);
+  handle.childProcess.stdin.write(json);
 
   // Store a synthetic user_input event in the output buffer so it replays on re-attach
   const userEvent = JSON.stringify({ type: 'user_input', text: message }) + '\n';
