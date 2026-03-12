@@ -287,6 +287,7 @@ function spawnStreamJsonSession(sessionId, cwd, env, extraFlags, initialPrompt) 
 
   child.stdout.on('data', (data) => {
     const text = data.toString();
+    console.log(`[STREAM-JSON] stdout ${sessionId.slice(0,8)}: ${text.substring(0, 300)}`);
     handle.output += text;
     if (handle.output.length > 500000) {
       handle.output = handle.output.slice(-400000);
@@ -307,6 +308,7 @@ function spawnStreamJsonSession(sessionId, cwd, env, extraFlags, initialPrompt) 
       if (!trimmed) continue;
       try {
         const event = JSON.parse(trimmed);
+        console.log(`[STREAM-JSON] event ${sessionId.slice(0,8)}: type=${event.type}, subtype=${event.subtype || ''}`);
         const msg = JSON.stringify({ type: 'stream-json', sessionId, event });
         for (const send of handle.listeners) {
           try { send(msg); } catch {}
