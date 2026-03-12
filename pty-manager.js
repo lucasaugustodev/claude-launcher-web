@@ -287,7 +287,6 @@ function spawnStreamJsonSession(sessionId, cwd, env, extraFlags, initialPrompt) 
 
   child.stdout.on('data', (data) => {
     const text = data.toString();
-    console.log(`[STREAM-JSON] stdout ${sessionId.slice(0,8)}: ${text.substring(0, 300)}`);
     handle.output += text;
     if (handle.output.length > 500000) {
       handle.output = handle.output.slice(-400000);
