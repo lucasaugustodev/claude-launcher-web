@@ -896,16 +896,29 @@ app.post('/api/marketplace/refresh-agents', checkToken, async (req, res) => {
   const cacheDir = path.join(os.tmpdir(), 'cl-marketplace', packId);
 
   try {
-    // Remove old cache and re-clone
+    // Remove old cache and re-clone (or copy from pre-installed)
     if (fs.existsSync(cacheDir)) {
       fs.rmSync(cacheDir, { recursive: true, force: true });
     }
     fs.mkdirSync(cacheDir, { recursive: true });
-    await new Promise((resolve, reject) => {
-      const proc = require('child_process').spawn('git', ['clone', '--depth', '1', `https://github.com/${pack.repo}.git`, cacheDir], { stdio: 'pipe', shell: true });
-      proc.on('close', code => code === 0 ? resolve() : reject(new Error(`git clone failed (${code})`)));
-      proc.on('error', reject);
-    });
+
+    const preInstalledPackDir = path.join('C:\\', packId);
+    if (fs.existsSync(preInstalledPackDir)) {
+      console.log(`[MARKETPLACE] Refreshing from pre-installed at ${preInstalledPackDir}`);
+      for (const f of fs.readdirSync(preInstalledPackDir)) {
+        if (f === '.git' || f === 'node_modules') continue;
+        const src = path.join(preInstalledPackDir, f);
+        const dest = path.join(cacheDir, f);
+        if (fs.statSync(src).isFile()) fs.copyFileSync(src, dest);
+      }
+    } else {
+      await new Promise((resolve, reject) => {
+        const proc = require('child_process').spawn('git', ['clone', '--depth', '1', `https://github.com/${pack.repo}.git`, cacheDir], { stdio: 'pipe', shell: true });
+        const timeout = setTimeout(() => { try { proc.kill(); } catch {} reject(new Error('git clone timed out')); }, 60000);
+        proc.on('close', code => { clearTimeout(timeout); code === 0 ? resolve() : reject(new Error(`git clone failed (${code})`)); });
+        proc.on('error', (err) => { clearTimeout(timeout); reject(err); });
+      });
+    }
 
     const files = fs.readdirSync(cacheDir).filter(f => f.endsWith('.md') && f !== 'README.md');
     console.log(`[MARKETPLACE] Refreshed pack ${packId}: ${files.length} agents`);
