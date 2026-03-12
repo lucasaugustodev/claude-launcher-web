@@ -22,7 +22,7 @@ const ChatViewManager = {
   open(sessionId, { streamJson } = {}) {
     this._currentSessionId = sessionId;
     this._messages = [];
-    this._status = 'thinking';
+    this._status = 'input_wait';
     this._textBuffer = '';
     this._terminalFallback = false;
     this._fallbackTerm = null;
@@ -32,10 +32,17 @@ const ChatViewManager = {
     this._registerHandlers(sessionId);
     API.attachSession(sessionId);
 
-    this._addMessage('system', 'Sessao iniciada. Aguardando resposta...');
+    this._addMessage('system', 'Sessao iniciada. Digite sua mensagem.');
     this._renderMessages();
 
     document.getElementById('terminal-overlay').style.display = 'flex';
+
+    // Focus input
+    var self = this;
+    setTimeout(function() {
+      var input = document.getElementById('chat-input');
+      if (input) input.focus();
+    }, 200);
   },
 
   _registerHandlers(sessionId) {
