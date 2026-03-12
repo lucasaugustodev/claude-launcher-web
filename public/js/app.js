@@ -227,7 +227,7 @@ function HistoryPage() {
                               try {
                                 const ns = await API.resumeSession(s.id, { streamJson: true });
                                 showToast('Sessao retomada!');
-                                getViewManager().open(ns.id, { streamJson: true });
+                                getViewManager().open(ns.id, { streamJson: true, previousSessionId: s.id });
                                 document.getElementById('terminal-title').textContent =
                                   ns.profileName + ' - ' + ns.id.slice(0, 8);
                                 updateActiveCount();
