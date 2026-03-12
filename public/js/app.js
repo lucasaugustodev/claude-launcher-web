@@ -65,8 +65,9 @@ function ProfilesPage() {
                     try {
                       const session = await API.launchSession(p.id, { streamJson: true });
                       showToast('Sessao lancada!');
-                      getViewManager().open(session.id, { streamJson: true });
-                      document.getElementById('terminal-title').textContent = p.name + ' - ' + session.id.slice(0, 8);
+                      if (window.FloatingChat && window.FloatingChat.openWithSession) {
+                        window.FloatingChat.openWithSession(session.id, p.name);
+                      }
                       updateActiveCount();
                     } catch (err) { showToast(err.message, 'error'); }
                   }}>Lancar</button>
