@@ -308,6 +308,12 @@ function spawnStreamJsonSession(sessionId, cwd, env, extraFlags, initialPrompt) 
       if (!trimmed) continue;
       try {
         const event = JSON.parse(trimmed);
+        // Capture Claude Code's internal session ID from system.init
+        if (event.type === 'system' && event.subtype === 'init' && event.session_id) {
+          handle.claudeSessionId = event.session_id;
+          // Persist to storage so resume works after restart
+          storage.updateSession(sessionId, { claudeSessionId: event.session_id });
+        }
         const msg = JSON.stringify({ type: 'stream-json', sessionId, event });
         for (const send of handle.listeners) {
           try { send(msg); } catch {}
