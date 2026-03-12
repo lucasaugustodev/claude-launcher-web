@@ -650,15 +650,8 @@ app.post('/api/marketplace/install-agents', checkToken, async (req, res) => {
         });
       }
     } else {
-      // Pull latest (best-effort, ignore errors)
-      try {
-        await new Promise((resolve, reject) => {
-          const proc = require('child_process').spawn('git', ['pull'], { cwd: cacheDir, stdio: 'pipe', shell: true });
-          const timeout = setTimeout(() => { try { proc.kill(); } catch {} resolve(); }, 30000);
-          proc.on('close', () => { clearTimeout(timeout); resolve(); });
-          proc.on('error', () => { clearTimeout(timeout); resolve(); });
-        });
-      } catch {}
+      // Cache already exists, skip git pull (pre-installed copies are not git repos)
+      console.log(`[MARKETPLACE] Using existing cache at ${cacheDir}`);
     }
 
     // Ensure agents dir exists
