@@ -562,13 +562,22 @@ function resumeSession(sessionId, { streamJson } = {}) {
   const newSessionId = uuid();
   const env = buildClaudeEnv(nodeMemory);
 
-  const flags = ['--continue'];
+  // Use --resume with Claude's internal session ID if available, otherwise --continue
+  const claudeSessionId = oldSession.claudeSessionId;
+  const flags = [];
+  if (claudeSessionId) {
+    flags.push('--resume', claudeSessionId);
+  } else {
+    flags.push('--continue');
+  }
   if (mode === 'bypass') flags.push('--dangerously-skip-permissions');
 
-  const displayName = `${oldSession.profileName} (resumed)`;
+  const displayName = `${oldSession.profileName || ''} (resumed)`.trim();
+  const resumePrompt = 'Continue de onde paramos. O que foi feito ate agora?';
+
   let handle;
   if (streamJson) {
-    handle = spawnStreamJsonSession(newSessionId, cwd, env, flags);
+    handle = spawnStreamJsonSession(newSessionId, cwd, env, flags, resumePrompt);
   } else {
     const shellAndArgs = buildClaudeCommand(flags, null);
     handle = spawnSession(newSessionId, shellAndArgs, cwd, env);
@@ -587,6 +596,7 @@ function resumeSession(sessionId, { streamJson } = {}) {
     status: 'running',
     pid: handle.pid,
     resumedFrom: sessionId,
+    streamJson: !!streamJson,
   };
   storage.addSession(session);
 
