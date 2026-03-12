@@ -617,23 +617,40 @@ app.post('/api/marketplace/install-agents', checkToken, async (req, res) => {
   if (!pack) return res.status(404).json({ error: 'Pack not found' });
 
   const cacheDir = path.join(os.tmpdir(), 'cl-marketplace', packId);
+  const preInstalledPackDir = path.join('C:\\', packId);
 
   try {
-    // Clone or pull the repo
+    // Use pre-installed source if available, otherwise clone from GitHub
     if (!fs.existsSync(cacheDir)) {
-      fs.mkdirSync(cacheDir, { recursive: true });
-      await new Promise((resolve, reject) => {
-        const proc = require('child_process').spawn('git', ['clone', '--depth', '1', `https://github.com/${pack.repo}.git`, cacheDir], { stdio: 'pipe', shell: true });
-        proc.on('close', code => code === 0 ? resolve() : reject(new Error(`git clone failed (${code})`)));
-        proc.on('error', reject);
-      });
+      if (fs.existsSync(preInstalledPackDir)) {
+        // Copy from pre-installed dir instead of git clone
+        console.log(`[MARKETPLACE] Using pre-installed agent pack at ${preInstalledPackDir}`);
+        fs.mkdirSync(cacheDir, { recursive: true });
+        for (const f of fs.readdirSync(preInstalledPackDir)) {
+          if (f === '.git' || f === 'node_modules') continue;
+          const src = path.join(preInstalledPackDir, f);
+          const dest = path.join(cacheDir, f);
+          if (fs.statSync(src).isFile()) fs.copyFileSync(src, dest);
+        }
+      } else {
+        fs.mkdirSync(cacheDir, { recursive: true });
+        await new Promise((resolve, reject) => {
+          const proc = require('child_process').spawn('git', ['clone', '--depth', '1', `https://github.com/${pack.repo}.git`, cacheDir], { stdio: 'pipe', shell: true });
+          const timeout = setTimeout(() => { try { proc.kill(); } catch {} reject(new Error('git clone timed out')); }, 60000);
+          proc.on('close', code => { clearTimeout(timeout); code === 0 ? resolve() : reject(new Error(`git clone failed (${code})`)); });
+          proc.on('error', (err) => { clearTimeout(timeout); reject(err); });
+        });
+      }
     } else {
-      // Pull latest
-      await new Promise((resolve, reject) => {
-        const proc = require('child_process').spawn('git', ['pull'], { cwd: cacheDir, stdio: 'pipe', shell: true });
-        proc.on('close', () => resolve());
-        proc.on('error', () => resolve()); // ignore pull errors
-      });
+      // Pull latest (best-effort, ignore errors)
+      try {
+        await new Promise((resolve, reject) => {
+          const proc = require('child_process').spawn('git', ['pull'], { cwd: cacheDir, stdio: 'pipe', shell: true });
+          const timeout = setTimeout(() => { try { proc.kill(); } catch {} resolve(); }, 30000);
+          proc.on('close', () => { clearTimeout(timeout); resolve(); });
+          proc.on('error', () => { clearTimeout(timeout); resolve(); });
+        });
+      } catch {}
     }
 
     // Ensure agents dir exists
