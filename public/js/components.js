@@ -42,44 +42,11 @@ function showProfileModal(profile = null, onSave) {
     <div class="modal-title">${isEdit ? 'Editar Projeto' : 'Novo Projeto'}</div>
     <div class="form-group">
       <label>Nome</label>
-      <input type="text" id="pf-name" value="${profile?.name || ''}" placeholder="Ex: Projeto Principal">
+      <input type="text" id="pf-name" value="${profile?.name || ''}" placeholder="Ex: Meu Projeto">
     </div>
     <div class="form-group">
-      <label>Diretorio de Trabalho</label>
-      <input type="text" id="pf-cwd" value="${profile?.workingDirectory || ''}" placeholder="C:\\Users\\...">
-    </div>
-    <div class="form-group">
-      <label>Modo</label>
-      <select id="pf-mode">
-        <option value="normal" ${(!profile || profile.mode === 'normal') ? 'selected' : ''}>Normal</option>
-        <option value="bypass" ${profile?.mode === 'bypass' ? 'selected' : ''}>Bypass (--dangerously-skip-permissions)</option>
-      </select>
-    </div>
-    <div class="form-group">
-      <label>Prompt Inicial (opcional)</label>
-      <input type="text" id="pf-prompt" value="${profile?.initialPrompt || ''}" placeholder="Ex: Analise o codigo...">
-    </div>
-    <div class="form-group">
-      <label>Node Memory MB (opcional)</label>
-      <input type="number" id="pf-mem" value="${profile?.nodeMemory || ''}" placeholder="Ex: 8192">
-    </div>
-    <div class="form-group">
-      <label>GitHub Repo (opcional - auto-versioning)</label>
-      <select id="pf-github-repo">
-        <option value="">Nenhum</option>
-      </select>
-      <div style="margin-top:6px">
-        <a href="https://github.com/new" target="_blank" id="pf-create-repo-link" style="color:var(--accent);font-size:12px;text-decoration:none">+ Criar novo repositorio no GitHub</a>
-        <button class="btn btn-sm" id="pf-refresh-repos" style="margin-left:8px;font-size:11px;padding:2px 8px">Atualizar lista</button>
-      </div>
-      <small style="color:var(--text-muted);display:block;margin-top:4px">Crie o repo no GitHub, depois clique em "Atualizar lista"</small>
-    </div>
-    <div class="form-group" id="pf-strategy-group" style="display:none">
-      <label>Estrategia de Sync</label>
-      <select id="pf-sync-strategy">
-        <option value="branch" ${(!profile || profile.syncStrategy !== 'main') ? 'selected' : ''}>Branch + PR (cria branch e abre PR ao final)</option>
-        <option value="main" ${profile?.syncStrategy === 'main' ? 'selected' : ''}>Commit direto no main</option>
-      </select>
+      <label>Descricao (opcional)</label>
+      <input type="text" id="pf-desc" value="${profile?.description || ''}" placeholder="Ex: Descricao do projeto">
     </div>
     <div class="modal-actions">
       <button class="btn" id="pf-cancel">Cancelar</button>
