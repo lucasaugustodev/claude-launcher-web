@@ -369,6 +369,11 @@ async function launchSession(profileId, { streamJson, prompt } = {}) {
 
   const sessionId = uuid();
   let cwd = profile.workingDirectory || process.cwd();
+  // Ensure working directory exists
+  if (!fs.existsSync(cwd)) {
+    fs.mkdirSync(cwd, { recursive: true });
+    console.log(`[SESSION] Created working directory: ${cwd}`);
+  }
   ensureWorkspaceTrusted(cwd);
   const env = buildClaudeEnv(profile.nodeMemory);
 
