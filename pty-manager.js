@@ -12,6 +12,27 @@ const { StreamAnalyzer } = require('./stream-analyzer');
 // Broadcast function set by server.js
 let _broadcast = () => {};
 
+// Mission Control webhook URL for forwarding agent events
+const MC_WEBHOOK_URL = process.env.MISSION_CONTROL_URL || 'http://localhost:4000';
+
+/**
+ * Forward stream-json events to Mission Control webhook.
+ * Non-blocking — fires and forgets.
+ */
+function forwardToMissionControl(sessionId, eventType, data) {
+  const url = `${MC_WEBHOOK_URL}/api/webhooks/session-events`;
+  const payload = { launcher_session_id: sessionId, event_type: eventType, data };
+  console.log(`[MC-HOOK] Forwarding ${eventType} for session ${sessionId.slice(0,8)}...`);
+  fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then(r => {
+    if (!r.ok) console.log(`[MC-HOOK] Response: ${r.status}`);
+    else r.json().then(j => console.log(`[MC-HOOK] OK:`, JSON.stringify(j).slice(0, 100)));
+  }).catch(err => console.log(`[MC-HOOK] Error: ${err.message}`));
+}
+
 // Ensure workspace is trusted in .claude.json before launching
 function ensureWorkspaceTrusted(cwd) {
   try {
@@ -32,6 +53,63 @@ function ensureWorkspaceTrusted(cwd) {
     }
   } catch (err) {
     console.error(`[TRUST] Failed to auto-trust workspace: ${err.message}`);
+  }
+}
+
+// Inject Mission Control hooks into workspace .claude/settings.json
+// Uses Claude Code's native hook system for reliable event detection
+function injectMCHooks(cwd, sessionId) {
+  const mcUrl = process.env.MISSION_CONTROL_URL || 'http://localhost:4000';
+  try {
+    const claudeDir = path.join(cwd, '.claude');
+    if (!fs.existsSync(claudeDir)) fs.mkdirSync(claudeDir, { recursive: true });
+
+    const settingsPath = path.join(claudeDir, 'settings.local.json');
+    let settings = {};
+    if (fs.existsSync(settingsPath)) {
+      try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch {}
+    }
+
+    // Build webhook URL with session ID as query param
+    const webhookBase = `${mcUrl}/api/webhooks/session-events`;
+
+    settings.hooks = {
+      PostToolUse: [
+        {
+          matcher: 'Edit|Write',
+          hooks: [{
+            type: 'command',
+            command: `node -e "const d=require('fs').readFileSync(0,'utf8');const e=JSON.parse(d);fetch('${webhookBase}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({launcher_session_id:'${sessionId}',event_type:'tool_use',data:{tool_name:e.tool_name,file_path:e.tool_input?.file_path||e.tool_input?.path}})}).catch(()=>{})"`,
+            timeout: 5,
+          }],
+        },
+      ],
+      Stop: [
+        {
+          matcher: '',
+          hooks: [{
+            type: 'command',
+            command: `node -e "const d=require('fs').readFileSync(0,'utf8');fetch('${webhookBase}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({launcher_session_id:'${sessionId}',event_type:'result',data:{content:'AGENT_STOPPED',source:'hook'}})}).catch(()=>{})"`,
+            timeout: 5,
+          }],
+        },
+      ],
+      SessionEnd: [
+        {
+          matcher: '',
+          hooks: [{
+            type: 'command',
+            command: `node -e "fetch('${webhookBase}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({launcher_session_id:'${sessionId}',event_type:'session_exit',data:{exit_code:0,source:'hook'}})}).catch(()=>{})"`,
+            timeout: 5,
+          }],
+        },
+      ],
+    };
+
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+    console.log(`[MC-HOOKS] Injected hooks into ${settingsPath} for session ${sessionId.slice(0, 8)}`);
+  } catch (err) {
+    console.error(`[MC-HOOKS] Failed to inject hooks: ${err.message}`);
   }
 }
 
@@ -318,6 +396,28 @@ function spawnStreamJsonSession(sessionId, cwd, env, extraFlags, initialPrompt) 
         for (const send of handle.listeners) {
           try { send(msg); } catch {}
         }
+
+        // Forward relevant events to Mission Control
+        if (event.type === 'assistant' && event.message?.content) {
+          // Claude Code stream-json wraps tool_use and text in message.content[]
+          for (const block of event.message.content) {
+            if (block.type === 'tool_use') {
+              forwardToMissionControl(sessionId, 'tool_use', {
+                tool_name: block.name,
+                file_path: block.input?.file_path || block.input?.path,
+                input: block.input,
+              });
+            } else if (block.type === 'text') {
+              const text = block.text || '';
+              if (/TASK_COMPLETE:/i.test(text) || /TEST_PASS:/i.test(text) || /TEST_FAIL:/i.test(text) || /VERIFY_PASS:/i.test(text) || /VERIFY_FAIL:/i.test(text)) {
+                forwardToMissionControl(sessionId, 'result', { content: text });
+              }
+            }
+          }
+        } else if (event.type === 'result') {
+          const text = typeof event.result === 'string' ? event.result : '';
+          forwardToMissionControl(sessionId, 'result', { content: text });
+        }
       } catch {} // skip non-JSON lines
     }
   });
@@ -339,6 +439,9 @@ function spawnStreamJsonSession(sessionId, cwd, env, extraFlags, initialPrompt) 
     }
 
     _broadcast({ type: 'exit', sessionId, exitCode: code });
+
+    // Notify Mission Control of session exit
+    forwardToMissionControl(sessionId, 'session_exit', { exit_code: code });
 
     const endedAt = new Date().toISOString();
     const startMs = new Date(handle.startedAt).getTime();
@@ -370,7 +473,7 @@ function spawnStreamJsonSession(sessionId, cwd, env, extraFlags, initialPrompt) 
   return handle;
 }
 
-async function launchSession(profileId, { streamJson, prompt } = {}) {
+async function launchSession(profileId, { streamJson, prompt, systemPrompt, appendSystemPrompt } = {}) {
   const profile = storage.getProfile(profileId);
   if (!profile) throw new Error('Profile not found');
 
@@ -382,6 +485,8 @@ async function launchSession(profileId, { streamJson, prompt } = {}) {
     console.log(`[SESSION] Created working directory: ${cwd}`);
   }
   ensureWorkspaceTrusted(cwd);
+  // Inject Mission Control hooks for all sessions (hooks work in both PTY and stream-json modes)
+  injectMCHooks(cwd, sessionId);
   const env = buildClaudeEnv(profile.nodeMemory);
 
   // If profile has a linked GitHub repo, clone/pull and use as cwd
@@ -415,6 +520,13 @@ async function launchSession(profileId, { streamJson, prompt } = {}) {
 
   const flags = [];
   if (profile.mode === 'bypass') flags.push('--dangerously-skip-permissions');
+
+  // System prompt support: --system-prompt or --append-system-prompt
+  if (systemPrompt) {
+    flags.push('--system-prompt', systemPrompt);
+  } else if (appendSystemPrompt) {
+    flags.push('--append-system-prompt', appendSystemPrompt);
+  }
 
   let initialPrompt = prompt || profile.initialPrompt || null;
 
@@ -712,6 +824,7 @@ function getActiveSessions() {
       pid: handle.pid,
       startedAt: handle.startedAt,
       elapsedSeconds: Math.round((Date.now() - startMs) / 1000),
+      streamJson: !!handle.streamJson,
     });
   }
   return active;

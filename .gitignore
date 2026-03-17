@@ -8,3 +8,13 @@ tunnel.log
 .env
 .env.local
 .env.*.local
+
+# Mission Control
+mission-control/node_modules/
+mission-control/.next/
+mission-control/data/
+mission-control/*.db
+mission-control/*.db-shm
+mission-control/*.db-wal
+mission-control/.env
+mission-control/.env.local

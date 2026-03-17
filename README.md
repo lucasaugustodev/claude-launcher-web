@@ -1,230 +1,183 @@
 # Claude Launcher Web
 
-Interface web para gerenciar e lançar sessões do Claude Code via browser, com terminal interativo em tempo real.
+Interface web para gerenciar e lancar sessoes do Claude Code via browser, com terminal interativo em tempo real e **Mission Control** integrado para orquestracao de agentes.
 
 ## Arquitetura
 
 ```
-Browser (xterm.js)  <──WebSocket──>  server.js (Express + WS)  <──node-pty──>  node cli.js (Claude Code)
+Browser (xterm.js)  <--WebSocket-->  server.js (Express + WS)  <--node-pty-->  Claude Code CLI
+                                         |
+                                    Mission Control (Next.js :4000)
+                                         |
+                                    SQLite + SSE + Workflow Engine
 ```
 
 **Stack:**
-- **Backend:** Node.js, Express, WebSocket (`ws`), `node-pty` (ConPTY no Windows)
-- **Frontend:** Vanilla JS, xterm.js (CDN), CSS Catppuccin Mocha theme
-- **Persistência:** JSON files em `data/` (profiles.json, sessions.json, outputs/*.raw)
+- **Launcher (porta 3002):** Node.js, Express, WebSocket (`ws`), `node-pty`, xterm.js
+- **Mission Control (porta 4000):** Next.js 14, React 18, SQLite (better-sqlite3), Zustand, TailwindCSS
+- **Integracao:** MC hooks nativos do Claude Code, WebSocket compartilhado, iframe embedding
 
-### Estrutura de Arquivos
+## Requisitos
 
-```
-claude-launcher-web/
-├── server.js          # Express server, REST API, WebSocket handler
-├── pty-manager.js     # Spawn/gerenciamento de PTY, output capture, resume
-├── storage.js         # Leitura/escrita JSON em data/
-├── package.json
-├── data/
-│   ├── profiles.json  # Perfis salvos
-│   ├── sessions.json  # Histórico de sessões
-│   ├── users.json     # Usuários cadastrados (hash + salt)
-│   └── outputs/       # Output bruto de cada sessão (.raw)
-└── public/
-    ├── index.html     # SPA shell
-    ├── css/style.css   # Catppuccin Mocha dark theme
-    └── js/
-        ├── api.js      # Cliente HTTP + WebSocket
-        ├── terminal.js # TerminalManager (xterm.js live + read-only)
-        ├── components.js # Renderização de páginas (perfis, ativas, histórico)
-        └── app.js      # Router SPA, auth, init
-```
+- **Node.js** >= 18
+- **npm** >= 9
+- **Claude Code CLI** instalado (`npm install -g @anthropic-ai/claude-code`)
+- **Windows** 10/11 (usa ConPTY via node-pty) ou **Linux/macOS**
 
-## Setup e Execução
+## Instalacao
 
 ```bash
-# Instalar dependências (inclui @anthropic-ai/claude-code localmente)
+# 1. Clone o repositorio
+git clone https://github.com/lucasaugustodev/claude-launcher-web.git
+cd claude-launcher-web
+
+# 2. Instale dependencias do Launcher
 npm install
 
-# Iniciar servidor
-npm start
-# ou
-node server.js
+# 3. Instale dependencias do Mission Control
+cd mission-control
+npm install
+cd ..
 ```
 
-Acessa em `http://localhost:3001` — no primeiro acesso, o app exibe uma tela de criação de conta (usuario + senha). Após isso, login com as credenciais criadas.
+## Executando
 
-### Variáveis de Ambiente
-
-| Variável | Default | Descrição |
-|---|---|---|
-| `PORT` | 3001 | Porta do servidor |
-
-### Windows: Git Bash
-
-Claude Code no Windows requer `git-bash`. Se Git estiver instalado mas não no PATH, defina:
-
-```
-CLAUDE_CODE_GIT_BASH_PATH=C:\Program Files\Git\bin\bash.exe
-```
-
-O `pty-manager.js` detecta e seta isso automaticamente se o Git estiver em `C:\Program Files\Git`.
-
-### Tunnel Externo (Cloudflare)
-
-Para acessar de fora da rede local:
+### Opcao 1: Tudo junto (recomendado)
 
 ```bash
-npx cloudflared tunnel --url http://localhost:3001
+# Terminal 1 - Launcher (porta 3002)
+node server.js
+
+# Terminal 2 - Mission Control (porta 4000)
+cd mission-control && npx next dev -p 4000
+```
+
+### Opcao 2: Apenas o Launcher
+
+```bash
+node server.js
+# Acesse http://localhost:3002
+```
+
+O Mission Control aparece como aba no menu lateral do Launcher. Se nao estiver rodando, mostra instrucoes para iniciar.
+
+### Opcao 3: Script rapido
+
+```bash
+# Linux/macOS
+node server.js & (cd mission-control && npx next dev -p 4000) &
+
+# Windows (PowerShell)
+Start-Process node -ArgumentList "server.js"
+Start-Process npx -ArgumentList "next dev -p 4000" -WorkingDirectory "mission-control"
 ```
 
 ## Funcionalidades
 
-### Perfis
-- Criar/editar/excluir perfis com: nome, diretório de trabalho, modo (Normal/Bypass), prompt inicial, Node memory
-- Lançar sessões a partir de um perfil com um clique
+### Launcher (porta 3002)
+- **Projetos** - Perfis de workspace para lancar sessoes Claude Code
+- **Terminal interativo** - xterm.js com WebSocket, Ctrl+C/V, resize
+- **Chat view** - Visualizacao estruturada de sessoes stream-json
+- **Toggle Chat/Terminal** - Alterna entre visao terminal (TUI) e chat
+- **Sessoes ativas** - Listar, abrir, parar sessoes em tempo real
+- **Historico** - Replay de sessoes anteriores
+- **Agendamentos** - Cron jobs para tarefas automaticas
+- **Skills** - Gerenciamento de skills do Claude Code
+- **Agentes** - Perfis de agentes customizados
 
-### Sessões Ativas
-- Ver todas as sessões rodando com PID, tempo decorrido
-- Abrir terminal interativo (xterm.js) com I/O bidirecional via WebSocket
-- Parar sessões individualmente
+### Mission Control (porta 4000)
+- **Workflow Engine** - Pipeline Builder -> Tester -> Reviewer com auto-handoff
+- **Agentes** - Gerenciamento com status, roles, soul_md (personalidade)
+- **Terminal por task** - Aba Terminal no modal de task com xterm.js conectado ao agente
+- **Activities** - Log estruturado de acoes (hooks nativos do Claude Code)
+- **Deliverables** - Tracking de arquivos criados
+- **Launcher integration** - Import de agentes do launcher, dispatch via PTY
+- **Fail-loopback** - Reenvio automatico para estagio anterior em caso de falha
+- **Dynamic agent routing** - Atribuicao automatica de agentes por role
 
-### Histórico
-- Tabela com todas as sessões (completadas, crashadas, paradas)
-- Filtros por status com contagem
-- **Ver Output:** Abre terminal read-only com o output salvo da sessão
-- **Retomar (Resume):** Relança sessão crashada/parada com `--continue` no mesmo diretório
+### Integracao Launcher + Mission Control
+- MC embutido como iframe no launcher (aba Mission Control)
+- Sessoes PTY do launcher vissiveis na tab Terminal do MC
+- Hooks nativos (PostToolUse, Stop, SessionEnd) para tracking
+- Agentes do launcher importaveis para workflows do MC
+- Soul MD injetado via `--append-system-prompt`
 
-## Decisões Técnicas e Lições Aprendidas
-
-### 1. Node.js CLI em vez de claude.exe (Bun)
-
-O executável global `claude.exe` (instalado via WinGet) é empacotado com **Bun v1.3.10**, que apresenta crash com "Illegal instruction" (panic) nesta máquina Windows:
-
-```
-Bun v1.3.10 - panic(main thread): Illegal instruction at address 0x7FF64320DE26
-```
-
-**Solução:** Usar `node.exe` + `node_modules/@anthropic-ai/claude-code/cli.js` diretamente, evitando o Bun completamente. O `pty-manager.js` resolve o caminho absoluto de ambos na inicialização:
-
-```js
-const LOCAL_CLI = path.join(__dirname, 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js');
-const NODE_EXE = findNodeExe(); // C:\Program Files\nodejs\node.exe
-```
-
-### 2. Variáveis de Ambiente para Evitar "Nested Session"
-
-O Claude Code detecta se está rodando dentro de outra instância via env vars. Como o server.js roda dentro do Claude Code (quando desenvolvendo), é necessário limpar essas variáveis:
-
-```js
-delete env.CLAUDECODE;
-delete env.CLAUDE_CODE_ENTRYPOINT;
-delete env.CLAUDE_CODE_TEAMMATE_COMMAND;
-```
-
-Também setamos `TERM=xterm-256color` e `FORCE_COLOR=1` para rendering correto do TUI.
-
-### 3. Resume com `--continue` (não prompt)
-
-A primeira abordagem de resume passava o log do output antigo como prompt inicial (igual ao launcher desktop Tauri). Isso causava o Claude Code exibir o diálogo interativo de **workspace trust** ("Quick safety check: Is this a project you created?"), ficando preso sem resposta automática.
-
-**Solução:** Usar a flag `--continue` do Claude Code, que retoma a última conversa no diretório de trabalho sem precisar de prompt. Evita o trust dialog e restaura o contexto corretamente.
-
-```js
-const flags = ['--continue'];
-if (mode === 'bypass') flags.push('--dangerously-skip-permissions');
-```
-
-### 4. Output Persistence
-
-Output de cada sessão é salvo em tempo real via `fs.appendFileSync` para `data/outputs/{sessionId}.raw`. Isso permite visualizar output mesmo de sessões já finalizadas. Buffer em memória limitado a 500KB com sliding window.
-
-### 5. ANSI no Histórico
-
-O output salvo contém sequências ANSI brutas (cursor positioning, screen clears, cores). Para replay no xterm.js read-only, o output é escrito em **chunks de 4KB com delay de 5ms** entre cada, permitindo que o xterm.js processe as escape sequences corretamente em vez de travar com um blob gigante.
-
-### 6. Git Bash no Windows (CLAUDE_CODE_GIT_BASH_PATH)
-
-Claude Code no Windows exige `git-bash` para funcionar. Se não encontrar, a sessão termina com código 1:
+## Estrutura de Arquivos
 
 ```
-Claude Code on Windows requires git-bash
+claude-launcher-web/
+├── server.js              # Express server, REST API, WebSocket handler
+├── pty-manager.js         # Spawn/gerenciamento de PTY, output capture
+├── storage.js             # Persistencia JSON em data/
+├── scheduler.js           # Cron job scheduler
+├── stream-analyzer.js     # Parser de output para chat view
+├── github-sync.js         # Integracao GitHub (clone, branch, PR)
+├── whatsapp-kapso.js      # Integracao WhatsApp via Kapso
+├── public/
+│   ├── index.html         # SPA shell
+│   ├── css/               # Estilos (Catppuccin Mocha theme)
+│   └── js/
+│       ├── api.js         # WebSocket client + REST API
+│       ├── terminal.js    # xterm.js terminal manager
+│       ├── chat-view.js   # Chat view (stream-json parser)
+│       ├── app.js         # Router, pages, components (Preact)
+│       └── floating-chat.js
+├── data/
+│   ├── profiles.json      # Perfis de workspace
+│   ├── sessions.json      # Historico de sessoes
+│   └── outputs/           # Output bruto (.raw)
+│
+└── mission-control/       # Mission Control (Next.js)
+    ├── src/
+    │   ├── app/           # Next.js App Router (API routes + pages)
+    │   ├── components/    # React components (TaskModal, TerminalTab, etc.)
+    │   ├── hooks/         # Custom hooks (useSSE, etc.)
+    │   └── lib/           # Core logic
+    │       ├── db/        # SQLite schema + migrations
+    │       ├── claude-launcher/  # Launcher HTTP client
+    │       ├── workflow-engine.ts
+    │       ├── task-governance.ts
+    │       └── store.ts   # Zustand state
+    ├── data/              # SQLite database + backups
+    ├── next.config.mjs
+    └── package.json
 ```
 
-**Solução:** O `buildClaudeEnv()` em `pty-manager.js` detecta automaticamente e seta `CLAUDE_CODE_GIT_BASH_PATH`:
+## Variaveis de Ambiente
 
-```js
-if (process.platform === 'win32' && !env.CLAUDE_CODE_GIT_BASH_PATH) {
-  const gitBashPath = 'C:\\Program Files\\Git\\bin\\bash.exe';
-  if (fs.existsSync(gitBashPath)) env.CLAUDE_CODE_GIT_BASH_PATH = gitBashPath;
-}
+| Variavel | Default | Descricao |
+|----------|---------|-----------|
+| `PORT` | `3002` | Porta do Launcher |
+| `CLAUDE_LAUNCHER_URL` | `http://localhost:3002` | URL do launcher (usado pelo MC) |
+| `MISSION_CONTROL_URL` | `http://localhost:4000` | URL do MC (usado pelos hooks) |
+| `MC_API_TOKEN` | _(vazio = sem auth)_ | Token de autenticacao da API do MC |
+
+## Desenvolvimento
+
+```bash
+# Launcher (auto-reload nao disponivel, reinicie manualmente)
+node server.js
+
+# Mission Control (hot reload via Next.js)
+cd mission-control && npx next dev -p 4000
+
+# Build de producao do MC
+cd mission-control && npm run build && npm start
 ```
 
-**Nota sobre provisioning remoto (WinRM):** O installer EXE do Git (Inno Setup) falha com "Access Denied" quando executado via WinRM. A solução é usar **PortableGit** (7z self-extracting) que apenas extrai arquivos sem precisar de instalador.
+## Docker
 
-### 7. WebSocket Bidirecional
+```bash
+# Launcher
+docker build -t claude-launcher .
+docker run -p 3002:3002 claude-launcher
 
-O terminal web funciona com WebSocket full-duplex:
-- **Server -> Client:** output do PTY em tempo real + evento de exit
-- **Client -> Server:** input do teclado + resize do terminal
-- Ao abrir um terminal, o servidor envia primeiro todo o output acumulado (catch-up), depois streams em tempo real
-- Cada WebSocket pode estar "attached" a múltiplas sessões simultaneamente
-
-## Autenticação
-
-Sistema token-based com setup no primeiro acesso:
-
-1. **Primeiro acesso** (`needsSetup: true`): tela de criação de conta (usuario + senha)
-2. **Login**: retorna Bearer token (24h de validade)
-3. **Rotas protegidas**: requerem `Authorization: Bearer <token>`
-4. **Senhas**: PBKDF2 com salt aleatório, salvas em `data/users.json`
-
-### Rotas públicas (sem auth)
-| Método | Rota | Descrição |
-|---|---|---|
-| GET | `/api/health` | Status do servidor |
-| GET | `/api/auth/status` | `{needsSetup, loggedIn}` |
-| POST | `/api/auth/setup` | Criar primeiro usuário |
-| POST | `/api/auth/login` | Login → `{token}` |
-
-### Rotas protegidas (Bearer token)
-| Método | Rota | Descrição |
-|---|---|---|
-| POST | `/api/auth/logout` | Invalidar token |
-| GET | `/api/profiles` | Listar perfis |
-| POST | `/api/profiles` | Criar perfil |
-| PUT | `/api/profiles/:id` | Atualizar perfil |
-| DELETE | `/api/profiles/:id` | Excluir perfil |
-| GET | `/api/sessions` | Sessões ativas |
-| GET | `/api/sessions/history` | Histórico completo |
-| POST | `/api/sessions/launch` | Lançar sessão `{profileId}` |
-| POST | `/api/sessions/:id/stop` | Parar sessão |
-| GET | `/api/sessions/:id/output` | Output salvo da sessão |
-| POST | `/api/sessions/:id/resume` | Retomar sessão com `--continue` |
-| DELETE | `/api/sessions/history` | Limpar histórico |
-
-## WebSocket (`/ws`)
-
-Auth via query param: `/ws?token=<bearer_token>`
-
-**Mensagens Client -> Server:**
-```json
-{ "type": "attach", "sessionId": "..." }
-{ "type": "detach", "sessionId": "..." }
-{ "type": "input", "sessionId": "...", "data": "texto" }
-{ "type": "resize", "sessionId": "...", "cols": 120, "rows": 30 }
+# Mission Control
+cd mission-control
+docker build -t mission-control .
+docker run -p 4000:4000 mission-control
 ```
 
-**Mensagens Server -> Client:**
-```json
-{ "type": "output", "sessionId": "...", "data": "..." }
-{ "type": "exit", "sessionId": "...", "exitCode": 0 }
-```
+## License
 
-## Comparação com o Launcher Desktop (Tauri)
-
-| Feature | Desktop (Tauri) | Web |
-|---|---|---|
-| Runtime | Rust + portable-pty | Node.js + node-pty |
-| Claude spawn | `cmd.exe /c claude` (Bun) | `node cli.js` (Node.js) |
-| Frontend | React + xterm.js | Vanilla JS + xterm.js |
-| Acesso remoto | Não | Sim (HTTP/WS + tunnel) |
-| Resume | Prompt com log file | `--continue` flag |
-| Output save | `.log` em AppData | `.raw` em `data/outputs/` |
-| Auth | Nenhum (local) | Token-based (setup no 1º acesso) |
+MIT

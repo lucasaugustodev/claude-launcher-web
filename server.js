@@ -1179,11 +1179,16 @@ app.get('/api/sessions/history', (req, res) => {
 });
 
 app.post('/api/sessions/launch', async (req, res) => {
-  const { profileId, streamJson, prompt } = req.body;
+  const { profileId, streamJson, prompt, systemPrompt, appendSystemPrompt } = req.body;
   if (!profileId) return res.status(400).json({ error: 'profileId is required' });
 
   try {
-    const session = await ptyManager.launchSession(profileId, { streamJson: !!streamJson, prompt: prompt || null });
+    const session = await ptyManager.launchSession(profileId, {
+      streamJson: !!streamJson,
+      prompt: prompt || null,
+      systemPrompt: systemPrompt || null,
+      appendSystemPrompt: appendSystemPrompt || null,
+    });
     res.status(201).json(session);
   } catch (err) {
     res.status(400).json({ error: err.message });

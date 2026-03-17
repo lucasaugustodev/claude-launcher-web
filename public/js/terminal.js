@@ -108,11 +108,38 @@ const TerminalManager = {
     };
     window.addEventListener('resize', this._resizeHandler);
 
+    // Add Chat toggle button
+    this._addChatToggle(sessionId);
+
     // Show overlay
     document.getElementById('terminal-overlay').style.display = 'flex';
   },
 
+  _addChatToggle(sessionId) {
+    var existing = document.getElementById('terminal-chat-toggle');
+    if (existing) existing.remove();
+
+    var header = document.querySelector('.terminal-header');
+    var stopBtn = document.getElementById('terminal-stop');
+    if (!header || !stopBtn) return;
+
+    var btn = document.createElement('button');
+    btn.className = 'btn btn-sm';
+    btn.id = 'terminal-chat-toggle';
+    btn.textContent = 'Chat';
+    btn.addEventListener('click', function() {
+      // Switch to chat view for this session
+      TerminalManager.close();
+      ChatViewManager.open(sessionId, { streamJson: true });
+      document.getElementById('terminal-overlay').style.display = 'flex';
+    });
+    header.insertBefore(btn, stopBtn);
+  },
+
   close() {
+    var chatToggle = document.getElementById('terminal-chat-toggle');
+    if (chatToggle) chatToggle.remove();
+
     if (this._currentSessionId) {
       API.detachSession(this._currentSessionId);
     }

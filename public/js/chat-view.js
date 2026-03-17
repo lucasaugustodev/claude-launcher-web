@@ -507,6 +507,10 @@ const ChatViewManager = {
   },
 };
 
-function getViewManager() {
+function getViewManager(options) {
+  // If explicitly not stream-json, use terminal directly
+  if (options && options.streamJson === false) {
+    return TerminalManager;
+  }
   return ChatViewManager;
 }

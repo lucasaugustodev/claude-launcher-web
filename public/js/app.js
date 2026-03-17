@@ -63,9 +63,9 @@ function ProfilesPage() {
                 <div class="card-actions">
                   <button class="btn btn-success btn-sm" onClick=${async () => {
                     try {
-                      const session = await API.launchSession(p.id, { streamJson: true });
+                      const session = await API.launchSession(p.id, { streamJson: false });
                       showToast('Sessao lancada!');
-                      getViewManager().open(session.id, { streamJson: true });
+                      TerminalManager.open(session.id);
                       document.getElementById('terminal-title').textContent = p.name + ' - ' + session.id.slice(0, 8);
                       updateActiveCount();
                     } catch (err) { showToast(err.message, 'error'); }
@@ -134,7 +134,7 @@ function ActivePage() {
                 </div>
                 <div class="card-actions">
                   <button class="btn btn-primary btn-sm" onClick=${() => {
-                    getViewManager().open(s.id, { streamJson: true });
+                    getViewManager({ streamJson: !!s.streamJson }).open(s.id, { streamJson: !!s.streamJson });
                     document.getElementById('terminal-title').textContent = 'Sessao ' + s.id.slice(0, 8);
                   }}>Abrir Terminal</button>
                   <button class="btn btn-danger btn-sm" onClick=${async () => {
@@ -225,9 +225,9 @@ function HistoryPage() {
                           ${s.status !== 'running' ? html`
                             <button class="btn btn-success btn-sm" onClick=${async () => {
                               try {
-                                const ns = await API.resumeSession(s.id, { streamJson: true });
+                                const ns = await API.resumeSession(s.id, { streamJson: false });
                                 showToast('Sessao retomada!');
-                                getViewManager().open(ns.id, { streamJson: true, previousSessionId: s.id });
+                                TerminalManager.open(ns.id);
                                 document.getElementById('terminal-title').textContent =
                                   ns.profileName + ' - ' + ns.id.slice(0, 8);
                                 updateActiveCount();
@@ -1806,6 +1806,93 @@ function WhatsAppCard() {
 
 // ─── Content Router ───
 
+// ─── Mission Control Page (iframe + PostMessage bridge) ───
+
+const MC_URL = 'http://localhost:4000';
+
+function MissionControlPage() {
+  const iframeRef = useRef(null);
+  const [mcOnline, setMcOnline] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Check if Mission Control is running
+  useEffect(() => {
+    let cancelled = false;
+    async function check() {
+      try {
+        const res = await fetch(MC_URL + '/api/workspaces', { signal: AbortSignal.timeout(3000) });
+        if (!cancelled) {
+          setMcOnline(res.ok);
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) { setMcOnline(false); setLoading(false); }
+      }
+    }
+    check();
+    const interval = setInterval(check, 15000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
+
+  // Update sidebar badge
+  useEffect(() => {
+    const badge = document.getElementById('mc-status');
+    if (badge) {
+      badge.style.display = mcOnline ? 'inline' : 'none';
+    }
+  }, [mcOnline]);
+
+  // PostMessage bridge: MC iframe can request terminal open
+  useEffect(() => {
+    function handleMessage(event) {
+      if (event.origin !== MC_URL) return;
+      const msg = event.data;
+      if (msg?.type === 'open-terminal' && msg.sessionId) {
+        // Open the terminal overlay for this launcher session
+        const viewManager = getViewManager();
+        document.getElementById('terminal-title').textContent = msg.agentName || 'Agent Session';
+        viewManager.open(msg.sessionId);
+      }
+    }
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
+  if (loading) {
+    return html`
+      <div class="empty-state">
+        <p style="font-size:24px">&#128376;</p>
+        <p>Verificando Mission Control...</p>
+      </div>
+    `;
+  }
+
+  if (!mcOnline) {
+    return html`
+      <div class="empty-state">
+        <p style="font-size:48px">&#128376;</p>
+        <h3 style="margin:16px 0 8px">Mission Control Offline</h3>
+        <p style="color:#a6adc8;margin-bottom:16px">O Mission Control nao esta rodando em <code>${MC_URL}</code></p>
+        <p style="color:#a6adc8;font-size:13px">Inicie com: <code>cd mission-control && npx next dev --turbo -p 4000</code></p>
+        <button class="btn btn-primary" style="margin-top:16px" onClick=${() => { setLoading(true); setTimeout(() => location.reload(), 500); }}>
+          Tentar Novamente
+        </button>
+      </div>
+    `;
+  }
+
+  return html`
+    <div style="width:100%;height:100%;display:flex;flex-direction:column;background:#11111b;">
+      <iframe
+        ref=${iframeRef}
+        src="${MC_URL}/workspace/default"
+        style="flex:1;border:none;width:100%;height:100%;background:#11111b;"
+        allow="clipboard-read; clipboard-write"
+      />
+    </div>
+  `;
+}
+
 function ContentRouter({ page }) {
   switch (page) {
     case 'profiles': return html`<${ProfilesPage} />`;
@@ -1816,6 +1903,7 @@ function ContentRouter({ page }) {
     case 'skills': return html`<${SkillsPage} />`;
     case 'workflows': return html`<${WorkflowsPage} />`;
     case 'config': return html`<${ConfigPage} />`;
+    case 'mission-control': return html`<${MissionControlPage} />`;
     case 'files': return html`<${LegacyPage} renderFn=${renderFileManagerPage} />`;
     case 'github-cli': return html`<${LegacyPage} renderFn=${renderGitHubCLIPage} />`;
     case 'cline-cli': return html`<${LegacyPage} renderFn=${renderClineCliPage} />`;
