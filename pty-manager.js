@@ -240,6 +240,8 @@ function spawnSession(sessionId, shellAndArgs, cwd, env, sessionUpdater) {
     exitCode: null,
     streamJson: false,
     firstPrompt: null,
+    cols: 120,
+    rows: 30,
   };
 
   // TUI mode: stream analyzer for mobile Chat View (emits structured action messages)
@@ -298,6 +300,8 @@ function spawnSession(sessionId, shellAndArgs, cwd, env, sessionUpdater) {
       endedAt,
       durationSeconds: duration,
       exitCode,
+      cols: handle.cols,
+      rows: handle.rows,
     });
 
     // Git watcher / GitHub sync only for Claude Code sessions (not Cline)
@@ -834,6 +838,8 @@ function resizePty(sessionId, cols, rows) {
   const handle = handles.get(sessionId);
   if (!handle || handle.exited) return false;
   try { handle.pty.resize(cols, rows); } catch {}
+  handle.cols = cols;
+  handle.rows = rows;
   return true;
 }
 

@@ -269,7 +269,8 @@ function HistoryPage() {
                               const data = await API.getSessionOutputData(s.id);
                               getViewManager().openReadOnly(
                                 sessionDisplayName(s, 40) + ' (historico)',
-                                data.output
+                                data.output,
+                                { cols: data.cols, rows: data.rows }
                               );
                             } catch (err) { showToast(err.message, 'error'); }
                           }}>Output</button>

@@ -498,8 +498,8 @@ const ChatViewManager = {
     document.getElementById('terminal-stop').style.display = '';
   },
 
-  openReadOnly(title, output) {
-    TerminalManager.openReadOnly(title, output);
+  openReadOnly(title, output, opts) {
+    TerminalManager.openReadOnly(title, output, opts);
   },
 
   get currentSessionId() {

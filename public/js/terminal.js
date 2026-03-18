@@ -172,8 +172,12 @@ const TerminalManager = {
   },
 
   // Open a read-only terminal to view historical output
-  openReadOnly(title, output) {
+  // cols/rows: original terminal dimensions for correct ANSI replay
+  openReadOnly(title, output, { cols, rows } = {}) {
     this._currentSessionId = null;
+
+    const replayCols = cols || 120;
+    const replayRows = rows || 30;
 
     const container = document.getElementById('terminal-container');
     container.innerHTML = '';
@@ -203,18 +207,15 @@ const TerminalManager = {
       },
       fontFamily: '"Cascadia Code", "Fira Code", Consolas, monospace',
       fontSize: 14,
+      cols: replayCols,
+      rows: replayRows,
       cursorBlink: false,
       disableStdin: true,
       allowProposedApi: true,
+      scrollback: 10000,
     });
 
-    this._fitAddon = new FitAddon.FitAddon();
-    this._term.loadAddon(this._fitAddon);
     this._term.open(container);
-
-    setTimeout(() => {
-      this._fitAddon.fit();
-    }, 100);
 
     // Write the saved output in chunks so xterm.js can process ANSI sequences properly
     if (output) {
@@ -234,10 +235,7 @@ const TerminalManager = {
       this._term.write('\x1b[33m[Nenhum output salvo para esta sessao]\x1b[0m\r\n');
     }
 
-    this._resizeHandler = () => {
-      if (this._fitAddon) this._fitAddon.fit();
-    };
-    window.addEventListener('resize', this._resizeHandler);
+    this._resizeHandler = null;
 
     document.getElementById('terminal-title').textContent = title;
     document.getElementById('terminal-stop').style.display = 'none';

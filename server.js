@@ -1203,7 +1203,8 @@ app.post('/api/sessions/:id/stop', (req, res) => {
 
 app.get('/api/sessions/:id/output', (req, res) => {
   const output = ptyManager.getSessionOutput(req.params.id);
-  res.json({ output });
+  const session = storage.getSession(req.params.id);
+  res.json({ output, cols: session?.cols || 120, rows: session?.rows || 30 });
 });
 
 app.post('/api/sessions/:id/resume', (req, res) => {
