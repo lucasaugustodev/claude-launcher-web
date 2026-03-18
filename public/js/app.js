@@ -4,6 +4,53 @@ const { h, render: preactRender } = preact;
 const { useState, useEffect, useRef, useCallback } = preactHooks;
 const html = htm.bind(h);
 
+// ─── Session Display Name Helper ───
+function sessionDisplayName(s, maxLen = 60) {
+  const name = s.customName || s.firstPrompt || null;
+  if (!name) return 'Sessao ' + s.id.slice(0, 8);
+  return name.length > maxLen ? name.substring(0, maxLen) + '...' : name;
+}
+
+// ─── Rename Modal ───
+function showRenameModal(sessionId, currentName, onDone) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9999';
+  const modal = document.createElement('div');
+  modal.style.cssText = 'background:var(--surface0,#313244);border:1px solid var(--overlay0,#6c7086);border-radius:12px;padding:24px;min-width:400px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.4)';
+  modal.innerHTML = `
+    <h3 style="margin:0 0 16px;color:var(--text,#cdd6f4);font-size:16px">Renomear Sessao</h3>
+    <input type="text" value="${(currentName || '').replace(/"/g, '&quot;')}" placeholder="Nome da sessao..."
+      style="width:100%;padding:10px 12px;background:var(--base,#1e1e2e);border:1px solid var(--overlay0,#6c7086);border-radius:8px;color:var(--text,#cdd6f4);font-size:14px;outline:none;box-sizing:border-box" />
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-sm" style="padding:8px 16px" data-action="cancel">Cancelar</button>
+      <button class="btn btn-primary btn-sm" style="padding:8px 16px" data-action="save">Salvar</button>
+    </div>
+  `;
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  const input = modal.querySelector('input');
+  input.focus();
+  input.select();
+  const close = () => overlay.remove();
+  const save = async () => {
+    const newName = input.value.trim();
+    if (newName === '') return;
+    try {
+      await API.renameSession(sessionId, newName);
+      showToast('Sessao renomeada');
+      close();
+      if (onDone) onDone();
+    } catch (err) { showToast(err.message, 'error'); }
+  };
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  modal.querySelector('[data-action="cancel"]').onclick = close;
+  modal.querySelector('[data-action="save"]').onclick = save;
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') save();
+    if (e.key === 'Escape') close();
+  });
+}
+
 // ─── Legacy Page Wrapper ───
 // Wraps old-style render functions as Preact components.
 // When Preact unmounts this, the container is detached from DOM,
@@ -126,7 +173,7 @@ function ActivePage() {
         : html`<div class="card-grid">
             ${sessions.map(s => html`
               <div class="card" key=${s.id}>
-                <div class="card-title">Sessao ${s.id.slice(0, 8)}</div>
+                <div class="card-title">${sessionDisplayName(s)}</div>
                 <div class="card-meta">
                   <span>PID: ${s.pid}</span>
                   <span>Inicio: ${new Date(s.startedAt).toLocaleString()}</span>
@@ -135,8 +182,11 @@ function ActivePage() {
                 <div class="card-actions">
                   <button class="btn btn-primary btn-sm" onClick=${() => {
                     getViewManager({ streamJson: !!s.streamJson }).open(s.id, { streamJson: !!s.streamJson });
-                    document.getElementById('terminal-title').textContent = 'Sessao ' + s.id.slice(0, 8);
+                    document.getElementById('terminal-title').textContent = sessionDisplayName(s, 50);
                   }}>Abrir Terminal</button>
+                  <button class="btn btn-sm" onClick=${() => {
+                    showRenameModal(s.id, s.customName || s.firstPrompt || '', load);
+                  }}>Renomear</button>
                   <button class="btn btn-danger btn-sm" onClick=${async () => {
                     try {
                       await API.stopSession(s.id);
@@ -201,12 +251,13 @@ function HistoryPage() {
             : html`<div class="table-container">
                 <table>
                   <thead><tr>
-                    <th>Projeto</th><th>Modo</th><th>Status</th><th>Inicio</th><th>Duracao</th><th>Exit</th><th>Acoes</th>
+                    <th>Projeto</th><th>Sessao</th><th>Modo</th><th>Status</th><th>Inicio</th><th>Duracao</th><th>Exit</th><th>Acoes</th>
                   </tr></thead>
                   <tbody>
                     ${filtered.map(s => html`
                       <tr key=${s.id}>
                         <td>${s.profileName || '-'}</td>
+                        <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title=${s.customName || s.firstPrompt || ''}>${sessionDisplayName(s)}</td>
                         <td><span class="status-tag ${s.mode === 'bypass' ? 'crashed' : 'completed'}">${s.mode || 'normal'}</span></td>
                         <td><span class="status-tag ${s.status || 'stopped'}">${s.status || '-'}</span></td>
                         <td>${new Date(s.startedAt).toLocaleString()}</td>
@@ -217,19 +268,21 @@ function HistoryPage() {
                             try {
                               const data = await API.getSessionOutputData(s.id);
                               getViewManager().openReadOnly(
-                                (s.profileName || 'Sessao') + ' - ' + s.id.slice(0, 8) + ' (historico)',
+                                sessionDisplayName(s, 40) + ' (historico)',
                                 data.output
                               );
                             } catch (err) { showToast(err.message, 'error'); }
                           }}>Output</button>
+                          <button class="btn btn-sm" onClick=${() => {
+                            showRenameModal(s.id, s.customName || s.firstPrompt || '', load);
+                          }}>Renomear</button>
                           ${s.status !== 'running' ? html`
                             <button class="btn btn-success btn-sm" onClick=${async () => {
                               try {
                                 const ns = await API.resumeSession(s.id, { streamJson: false });
                                 showToast('Sessao retomada!');
                                 TerminalManager.open(ns.id);
-                                document.getElementById('terminal-title').textContent =
-                                  ns.profileName + ' - ' + ns.id.slice(0, 8);
+                                document.getElementById('terminal-title').textContent = sessionDisplayName(ns, 50);
                                 updateActiveCount();
                               } catch (err) { showToast(err.message, 'error'); }
                             }}>Retomar</button>

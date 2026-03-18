@@ -1216,6 +1216,17 @@ app.post('/api/sessions/:id/resume', (req, res) => {
   }
 });
 
+app.patch('/api/sessions/:id', (req, res) => {
+  const { customName } = req.body || {};
+  if (typeof customName !== 'string') return res.status(400).json({ error: 'customName is required' });
+  const trimmed = customName.trim().substring(0, 200);
+  storage.updateSession(req.params.id, { customName: trimmed });
+  // Also update in-memory handle if session is active
+  const handle = ptyManager.getHandle && ptyManager.getHandle(req.params.id);
+  if (handle) handle.customName = trimmed;
+  res.json({ ok: true, customName: trimmed });
+});
+
 app.delete('/api/sessions/history', (req, res) => {
   storage.clearHistory();
   res.json({ ok: true });

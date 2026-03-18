@@ -61,6 +61,7 @@ class StreamAnalyzer {
     this._live = false; // Start muted - becomes live after first quiet period
     this._liveTimer = null;
     this._startLiveTimer();
+    this.firstPrompt = null;       // First user prompt text (set externally by pty-manager)
   }
 
   // After 500ms of no data, consider replay done and go live
@@ -124,6 +125,7 @@ class StreamAnalyzer {
 
   _stripAnsi(str) {
     return str
+      .replace(/\x1b\[(\d+)C/g, (_, n) => ' '.repeat(parseInt(n, 10))) // Cursor forward N → N spaces
       .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')    // CSI sequences
       .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '') // OSC sequences
       .replace(/\x1b[()][AB012]/g, '')             // Character set

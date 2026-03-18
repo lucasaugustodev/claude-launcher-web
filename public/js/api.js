@@ -123,6 +123,10 @@ const API = {
     return this.fetch(`api/sessions/${id}/resume`, { method: 'POST', body: JSON.stringify({ streamJson }) });
   },
 
+  renameSession(id, customName) {
+    return this.fetch(`api/sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ customName }) });
+  },
+
   clearHistory() {
     return this.fetch('api/sessions/history', { method: 'DELETE' });
   },

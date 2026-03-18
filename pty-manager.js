@@ -239,10 +239,15 @@ function spawnSession(sessionId, shellAndArgs, cwd, env, sessionUpdater) {
     exited: false,
     exitCode: null,
     streamJson: false,
+    firstPrompt: null,
   };
 
   // TUI mode: stream analyzer for mobile Chat View (emits structured action messages)
   const analyzer = new StreamAnalyzer(sessionId, (action) => {
+    // When input prompt (❯) detected, start capturing user keystrokes
+    if (action.kind === 'input_prompt' && !handle.firstPrompt && handle._inputBuffer === undefined) {
+      handle._inputBuffer = '';
+    }
     const msg = JSON.stringify({ type: 'action', sessionId, action });
     for (const send of handle.listeners) {
       try { send(msg); } catch {}
@@ -542,6 +547,13 @@ async function launchSession(profileId, { streamJson, prompt, systemPrompt, appe
     handle = spawnSession(sessionId, shellAndArgs, cwd, env);
   }
 
+  // Store initial prompt as firstPrompt if available
+  const promptText = initialPrompt ? initialPrompt.substring(0, 200) : null;
+  if (promptText) {
+    handle.firstPrompt = promptText;
+    if (handle.analyzer) handle.analyzer.firstPrompt = promptText;
+  }
+
   const session = {
     id: sessionId,
     profileId,
@@ -558,6 +570,7 @@ async function launchSession(profileId, { streamJson, prompt, systemPrompt, appe
     syncStrategy: profile.syncStrategy || null,
     watcherBranch: watcherBranch,
     streamJson: !!streamJson,
+    firstPrompt: promptText,
   };
   storage.addSession(session);
 
@@ -710,7 +723,9 @@ function resumeSession(sessionId, { streamJson } = {}) {
     pid: handle.pid,
     resumedFrom: sessionId,
     streamJson: !!streamJson,
+    firstPrompt: oldSession.firstPrompt || null,
   };
+  handle.firstPrompt = session.firstPrompt;
   storage.addSession(session);
 
   return session;
@@ -776,6 +791,41 @@ function sendInput(sessionId, data) {
     return false;
   }
   console.log(`[INPUT] Writing to PTY session ${sessionId}: ${JSON.stringify(data).substring(0, 100)}`);
+
+  // Capture first user prompt from keystrokes
+  if (!handle.firstPrompt && handle._inputBuffer !== undefined) {
+    for (let i = 0; i < data.length; i++) {
+      const ch = data[i];
+      const code = ch.charCodeAt(0);
+      if (ch === '\r' || ch === '\n') {
+        // Enter pressed — save accumulated text as first prompt
+        const text = handle._inputBuffer.trim();
+        if (text.length >= 3) {
+          handle.firstPrompt = text.substring(0, 200);
+          delete handle._inputBuffer;
+          console.log(`[INPUT] firstPrompt captured for ${sessionId}: "${handle.firstPrompt.substring(0, 80)}"`);
+          storage.updateSession(sessionId, { firstPrompt: handle.firstPrompt });
+          for (const send of handle.listeners) {
+            try { send(JSON.stringify({ type: 'action', sessionId, action: { kind: 'first_prompt', text: handle.firstPrompt, timestamp: Date.now() } })); } catch {}
+          }
+        }
+        break;
+      } else if (ch === '\x7f' || ch === '\b') {
+        // Backspace/DEL — remove last char
+        handle._inputBuffer = handle._inputBuffer.slice(0, -1);
+      } else if (ch === '\x1b') {
+        // Escape sequence — skip until end of sequence
+        if (data[i + 1] === '[') {
+          i += 2; // skip ESC [
+          while (i < data.length && !/[A-Za-z~]/.test(data[i])) i++;
+        }
+      } else if (code >= 32) {
+        // Printable character — accumulate
+        handle._inputBuffer += ch;
+      }
+    }
+  }
+
   handle.pty.write(data);
   return true;
 }
@@ -825,6 +875,8 @@ function getActiveSessions() {
       startedAt: handle.startedAt,
       elapsedSeconds: Math.round((Date.now() - startMs) / 1000),
       streamJson: !!handle.streamJson,
+      firstPrompt: handle.firstPrompt || null,
+      customName: handle.customName || null,
     });
   }
   return active;
@@ -1251,7 +1303,7 @@ function setBroadcast(fn) {
 module.exports = {
   launchSession, launchDirect, launchAgent, launchPlanningSession, resumeSession, stopSession, sendInput, resizePty,
   sendStreamJsonInput, isStreamJson,
-  getActiveSessions, getSessionOutput,
+  getActiveSessions, getSessionOutput, getHandle: (id) => handles.get(id) || null,
   addListener, removeListener, stopAll, cleanupOrphaned,
   setBroadcast, spawnInteractive,
   launchClineSession, stopClineSession, getActiveClineSessions, cleanupOrphanedCline,
