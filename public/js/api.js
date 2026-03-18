@@ -661,6 +661,13 @@ const API = {
     });
   },
 
+  sendWhatsAppFile(filePath, caption, to) {
+    return this.fetch('api/whatsapp/send-file', {
+      method: 'POST',
+      body: JSON.stringify({ filePath, caption, to }),
+    });
+  },
+
   // ─── Marketplace ───
 
   getMarketplaceCatalog() {

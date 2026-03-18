@@ -102,6 +102,95 @@ function getLinkStatus(code) {
   return { status: 'waiting' };
 }
 
+// ─── Upload media to Kapso ───
+
+async function uploadMedia(filePath) {
+  const fs = require('fs');
+  const path = require('path');
+  const mime = {
+    '.pdf': 'application/pdf', '.doc': 'application/msword', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.xls': 'application/vnd.ms-excel', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.csv': 'text/csv', '.txt': 'text/plain', '.json': 'application/json',
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
+    '.mp4': 'video/mp4', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg',
+    '.zip': 'application/zip', '.html': 'text/html',
+  };
+
+  const ext = path.extname(filePath).toLowerCase();
+  const contentType = mime[ext] || 'application/octet-stream';
+  const fileName = path.basename(filePath);
+  const fileData = fs.readFileSync(filePath);
+
+  const boundary = '----FormBoundary' + Math.random().toString(36).slice(2);
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="messaging_product"\r\n\r\nwhatsapp\r\n`),
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: ${contentType}\r\n\r\n`),
+    fileData,
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ]);
+
+  const resp = await fetch(`${KAPSO_API}/${PHONE_NUMBER_ID}/media`, {
+    method: 'POST',
+    headers: {
+      'X-API-Key': KAPSO_KEY,
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+    },
+    body,
+  });
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Media upload failed (${resp.status}): ${err.slice(0, 200)}`);
+  }
+  const data = await resp.json();
+  return data.id; // media ID
+}
+
+// ─── Send media message via Kapso ───
+
+async function sendMedia(to, filePath, caption) {
+  const path = require('path');
+  const ext = path.extname(filePath).toLowerCase();
+
+  // Determine media type
+  let mediaType = 'document';
+  if (['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext)) mediaType = 'image';
+  else if (['.mp4'].includes(ext)) mediaType = 'video';
+  else if (['.mp3', '.ogg', '.opus'].includes(ext)) mediaType = 'audio';
+
+  // Upload first
+  const mediaId = await uploadMedia(filePath);
+
+  // Build message payload
+  const payload = {
+    messaging_product: 'whatsapp',
+    to,
+    type: mediaType,
+    [mediaType]: { id: mediaId },
+  };
+
+  // Add caption for image/video/document
+  if (caption && mediaType !== 'audio') {
+    payload[mediaType].caption = caption;
+  }
+  if (mediaType === 'document') {
+    payload[mediaType].filename = path.basename(filePath);
+  }
+
+  const resp = await fetch(`${KAPSO_API}/${PHONE_NUMBER_ID}/messages`, {
+    method: 'POST',
+    headers: {
+      'X-API-Key': KAPSO_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Media send failed (${resp.status}): ${err.slice(0, 200)}`);
+  }
+  return resp.json();
+}
+
 // ─── Send message via Kapso ───
 
 async function sendMessage(to, text) {
@@ -166,6 +255,8 @@ module.exports = {
   getIncomingMessages,
   getLinkedMessages,
   unlink,
+  uploadMedia,
+  sendMedia,
   _setApiKey(key) { KAPSO_KEY = key; },
   _getApiKey() { return KAPSO_KEY; },
 };

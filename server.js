@@ -1836,6 +1836,27 @@ app.post('/api/whatsapp/send', checkToken, async (req, res) => {
   }
 });
 
+// Send file via WhatsApp
+app.post('/api/whatsapp/send-file', checkToken, async (req, res) => {
+  const { filePath, caption, to } = req.body;
+  try {
+    const status = whatsappKapso.getStatus();
+    const phone = to || status.phoneNumber;
+    if (!phone) return res.status(400).json({ error: 'No linked phone' });
+    if (!filePath) return res.status(400).json({ error: 'filePath required' });
+
+    const fs = require('fs');
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found: ' + filePath });
+
+    const result = await whatsappKapso.sendMedia(phone, filePath, caption || '');
+    console.log(`[WhatsApp] File sent: ${filePath}`);
+    res.json(result);
+  } catch (err) {
+    console.error('[WhatsApp] Send file error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Claude Code CLI API ───
 
 app.get('/api/claude-cli/status', checkToken, async (req, res) => {
@@ -2954,6 +2975,48 @@ function registerWhatsAppResponseListener(sessionId) {
               responseBuffer += block.text;
               clearTimeout(flushTimer);
               flushTimer = setTimeout(() => flushWhatsAppResponse(), 1200);
+            }
+          }
+        }
+      }
+
+      // Detect files created by the agent — send via WhatsApp
+      if (event.type === 'tool_result' || event.type === 'assistant') {
+        const content = event.message?.content || (Array.isArray(event.content) ? event.content : []);
+        const sendableExts = ['.pdf','.doc','.docx','.xls','.xlsx','.csv','.txt','.json','.png','.jpg','.jpeg','.gif','.mp4','.mp3','.zip','.html','.webp'];
+        const fs = require('fs');
+        const pathMod = require('path');
+
+        for (const block of (Array.isArray(content) ? content : [])) {
+          // Write tool
+          if (block.type === 'tool_use' && (block.name === 'Write' || block.name === 'write')) {
+            const filePath = block.input?.file_path;
+            if (filePath && sendableExts.includes(pathMod.extname(filePath).toLowerCase()) && fs.existsSync(filePath)) {
+              const status = whatsappKapso.getStatus();
+              if (status.linked) {
+                whatsappKapso.sendMedia(status.phoneNumber, filePath, pathMod.basename(filePath))
+                  .then(() => console.log(`[WhatsApp] Auto-sent file: ${filePath}`))
+                  .catch(err => console.error(`[WhatsApp] File send error: ${err.message}`));
+              }
+            }
+          }
+          // Bash tool result — scan for file paths in output
+          if (block.type === 'tool_result' || block.type === 'text') {
+            const text = typeof block.text === 'string' ? block.text : (block.content || '');
+            if (typeof text === 'string') {
+              // Match file paths like C:\...\file.png or /tmp/file.pdf
+              const pathMatches = text.match(/[A-Z]:\\[^\s"'<>|]+\.\w{2,4}|\/[^\s"'<>|]+\.\w{2,4}/g) || [];
+              for (const fp of pathMatches) {
+                const ext = pathMod.extname(fp).toLowerCase();
+                if (sendableExts.includes(ext) && fs.existsSync(fp) && fs.statSync(fp).size > 0) {
+                  const status = whatsappKapso.getStatus();
+                  if (status.linked) {
+                    whatsappKapso.sendMedia(status.phoneNumber, fp, pathMod.basename(fp))
+                      .then(() => console.log(`[WhatsApp] Auto-sent file from output: ${fp}`))
+                      .catch(err => console.error(`[WhatsApp] File send error: ${err.message}`));
+                  }
+                }
+              }
             }
           }
         }
