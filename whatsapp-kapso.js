@@ -2,8 +2,20 @@ const fs = require('fs');
 const path = require('path');
 
 const KAPSO_API = 'https://api.kapso.ai/meta/whatsapp/v24.0';
-const KAPSO_KEY = '88d2b65b02c6531e71295e25dad846ba3b5c10391c85f0b109b7a8625e1909d3';
 const PHONE_NUMBER_ID = '597907523413541'; // Kapso Sandbox (+56 9 2040 3095)
+
+// Load API key from credentials file, fallback to hardcoded
+function loadApiKey() {
+  try {
+    const credsPath = path.join(__dirname, '.kapso-credentials.json');
+    if (fs.existsSync(credsPath)) {
+      const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+      if (creds.apiKey) return creds.apiKey;
+    }
+  } catch {}
+  return '3b2b4d03be0520218d8ca86509c948fee5cd0276ef6e7b1400580e0e21956c12';
+}
+let KAPSO_KEY = loadApiKey();
 const LINK_FILE = path.join(__dirname, '.whatsapp-linked.json');
 
 // In-memory pending codes: { code: { createdAt, resolved, phoneNumber } }
@@ -154,4 +166,6 @@ module.exports = {
   getIncomingMessages,
   getLinkedMessages,
   unlink,
+  _setApiKey(key) { KAPSO_KEY = key; },
+  _getApiKey() { return KAPSO_KEY; },
 };

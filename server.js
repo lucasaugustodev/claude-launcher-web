@@ -1712,59 +1712,75 @@ app.post('/api/whatsapp/setup', checkToken, async (req, res) => {
   // Run setup in background, respond immediately
   res.json({ status: 'started', message: 'Kapso setup iniciado...' });
 
-  try {
-    const kapsoSetup = require('./scripts/kapso-setup');
-    const credentials = await kapsoSetup.run(phone);
+  // Run as child process to always use latest code (bypasses require cache)
+  const { execFile } = require('child_process');
+  const scriptPath = require('path').join(__dirname, 'scripts', 'kapso-setup.js');
 
+  execFile('node', [scriptPath, phone], { timeout: 180000, cwd: __dirname }, (err, stdout, stderr) => {
     kapsoSetupRunning = false;
+    console.log(`[WhatsApp Setup] stdout: ${stdout}`);
+    if (stderr) console.error(`[WhatsApp Setup] stderr: ${stderr}`);
 
-    if (credentials && credentials.activationCode === '__DUPLICATE__') {
-      // Phone number already in use in another Kapso project
+    if (err) {
+      console.error('[WhatsApp Setup] Error:', err.message);
       wss.clients.forEach(ws => {
         if (ws.readyState === ws.OPEN) {
-          ws.send(JSON.stringify({
-            type: 'whatsapp:setup-error',
-            error: 'Esse numero ja esta vinculado em outro projeto Kapso. Use outro numero.',
-          }));
+          ws.send(JSON.stringify({ type: 'whatsapp:setup-error', error: err.message }));
         }
       });
-    } else if (credentials && credentials.activationCode) {
-      if (credentials.apiKey) {
-        console.log(`[WhatsApp Setup] Got API key: ${credentials.apiKey.slice(0, 8)}...`);
+      return;
+    }
+
+    // Read credentials from saved file
+    try {
+      const fs = require('fs');
+      const credsPath = require('path').join(__dirname, '.kapso-credentials.json');
+      const credentials = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+
+      if (credentials.activationCode === '__DUPLICATE__') {
+        wss.clients.forEach(ws => {
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'whatsapp:setup-error',
+              error: 'Esse numero ja esta vinculado em outro projeto Kapso. Use outro numero.',
+            }));
+          }
+        });
+      } else if (credentials.activationCode) {
+        if (credentials.apiKey) {
+          console.log(`[WhatsApp Setup] Got API key: ${credentials.apiKey.slice(0, 8)}...`);
+        }
+        wss.clients.forEach(ws => {
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'whatsapp:setup-complete',
+              activationCode: credentials.activationCode,
+              sandboxNumber: credentials.sandboxNumber || '+56920403095',
+              apiKey: credentials.apiKey,
+              projectId: credentials.projectId,
+              email: credentials.email,
+            }));
+          }
+        });
+        console.log(`[WhatsApp Setup] Complete! Code: ${credentials.activationCode}`);
+      } else {
+        wss.clients.forEach(ws => {
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'whatsapp:setup-error',
+              error: 'Setup completou mas nao obteve codigo de ativacao',
+            }));
+          }
+        });
       }
-
+    } catch (readErr) {
       wss.clients.forEach(ws => {
         if (ws.readyState === ws.OPEN) {
-          ws.send(JSON.stringify({
-            type: 'whatsapp:setup-complete',
-            activationCode: credentials.activationCode,
-            sandboxNumber: credentials.sandboxNumber || '+56920403095',
-            apiKey: credentials.apiKey,
-            projectId: credentials.projectId,
-            email: credentials.email,
-          }));
-        }
-      });
-      console.log(`[WhatsApp Setup] Complete! Code: ${credentials.activationCode}`);
-    } else {
-      wss.clients.forEach(ws => {
-        if (ws.readyState === ws.OPEN) {
-          ws.send(JSON.stringify({
-            type: 'whatsapp:setup-error',
-            error: 'Setup completou mas nao obteve codigo de ativacao',
-          }));
+          ws.send(JSON.stringify({ type: 'whatsapp:setup-error', error: 'Erro ao ler credenciais: ' + readErr.message }));
         }
       });
     }
-  } catch (err) {
-    kapsoSetupRunning = false;
-    console.error('[WhatsApp Setup] Error:', err.message);
-    wss.clients.forEach(ws => {
-      if (ws.readyState === ws.OPEN) {
-        ws.send(JSON.stringify({ type: 'whatsapp:setup-error', error: err.message }));
-      }
-    });
-  }
+  });
 });
 
 app.get('/api/whatsapp/link-status', checkToken, (req, res) => {
@@ -1775,6 +1791,36 @@ app.get('/api/whatsapp/link-status', checkToken, (req, res) => {
 
 app.post('/api/whatsapp/unlink', checkToken, (req, res) => {
   res.json(whatsappKapso.unlink());
+});
+
+// Direct connect with user-provided API key and phone
+app.post('/api/whatsapp/connect', checkToken, (req, res) => {
+  const { apiKey, phone } = req.body;
+  if (!apiKey || !phone) return res.status(400).json({ error: 'apiKey and phone required' });
+
+  const cleanPhone = phone.replace(/[\s\-()+ ]/g, '');
+  const fs = require('fs');
+  const path = require('path');
+
+  // Save credentials
+  const credsPath = path.join(__dirname, '.kapso-credentials.json');
+  fs.writeFileSync(credsPath, JSON.stringify({ apiKey, phone: cleanPhone, createdAt: new Date().toISOString() }, null, 2));
+
+  // Save link
+  const linkPath = path.join(__dirname, '.whatsapp-linked.json');
+  fs.writeFileSync(linkPath, JSON.stringify({ phoneNumber: cleanPhone, linkedAt: new Date().toISOString(), code: 'MANUAL' }, null, 2));
+
+  // Update the whatsapp module key in memory
+  try {
+    const kapsoModule = require('./whatsapp-kapso');
+    if (kapsoModule._setApiKey) kapsoModule._setApiKey(apiKey);
+  } catch {}
+
+  // Start the bridge
+  startWhatsappBridge();
+
+  console.log(`[WhatsApp] Connected: phone=${cleanPhone}, key=${apiKey.slice(0, 8)}...`);
+  res.json({ status: 'connected', phoneNumber: cleanPhone });
 });
 
 app.post('/api/whatsapp/send', checkToken, async (req, res) => {
@@ -2679,6 +2725,71 @@ app.post('/api/planning/launch', checkToken, (req, res) => {
   }
 });
 
+// ─── WhatsApp Audio Transcription ───
+
+async function transcribeWhatsAppAudio(mediaId) {
+  const { execFileSync } = require('child_process');
+  const fs = require('fs');
+  const path = require('path');
+  const os = require('os');
+  const whatsappKapso = require('./whatsapp-kapso');
+
+  // 1. Download audio from Kapso
+  const mediaUrl = `https://api.kapso.ai/meta/whatsapp/v24.0/${mediaId}`;
+  const metaResp = await fetch(mediaUrl, {
+    headers: { 'X-API-Key': whatsappKapso._getApiKey ? whatsappKapso._getApiKey() : '' },
+  });
+  if (!metaResp.ok) {
+    // Try getting the media URL first
+    const metaData = await metaResp.json().catch(() => ({}));
+    throw new Error(`Media fetch failed: ${metaResp.status} ${JSON.stringify(metaData)}`);
+  }
+
+  const mediaData = await metaResp.json();
+  const downloadUrl = mediaData.url;
+
+  // Download the actual audio file
+  const audioResp = await fetch(downloadUrl, {
+    headers: { 'X-API-Key': whatsappKapso._getApiKey ? whatsappKapso._getApiKey() : '' },
+  });
+  if (!audioResp.ok) throw new Error(`Audio download failed: ${audioResp.status}`);
+
+  const audioBuffer = Buffer.from(await audioResp.arrayBuffer());
+  const tmpDir = os.tmpdir();
+  const oggPath = path.join(tmpDir, `wa-audio-${Date.now()}.ogg`);
+  const wavPath = path.join(tmpDir, `wa-audio-${Date.now()}.wav`);
+
+  fs.writeFileSync(oggPath, audioBuffer);
+
+  // 2. Convert to WAV with ffmpeg
+  try {
+    execFileSync('ffmpeg', ['-i', oggPath, '-ar', '16000', '-ac', '1', '-y', wavPath], { timeout: 30000 });
+  } catch (err) {
+    fs.unlinkSync(oggPath);
+    throw new Error('FFmpeg conversion failed: ' + err.message);
+  }
+  fs.unlinkSync(oggPath);
+
+  // 3. Transcribe with Whisper
+  try {
+    const result = execFileSync('whisper', [wavPath, '--model', 'base', '--language', 'pt', '--output_format', 'txt', '--output_dir', tmpDir], {
+      timeout: 60000,
+      encoding: 'utf8',
+    });
+    const txtPath = wavPath.replace('.wav', '.txt');
+    let transcription = '';
+    if (fs.existsSync(txtPath)) {
+      transcription = fs.readFileSync(txtPath, 'utf8').trim();
+      fs.unlinkSync(txtPath);
+    }
+    fs.unlinkSync(wavPath);
+    return transcription || null;
+  } catch (err) {
+    try { fs.unlinkSync(wavPath); } catch {}
+    throw new Error('Whisper failed: ' + err.message);
+  }
+}
+
 // ─── WhatsApp ↔ Agent Bridge (fully server-side) ───
 
 let whatsappBridgeInterval = null;
@@ -2710,7 +2821,27 @@ async function startWhatsappBridge() {
 
       for (const msg of messages) {
         const msgId = msg.id || msg.message_id;
-        if (!msgId || processedWhatsappMsgIds.has(msgId)) continue;
+        if (!msgId) { console.log('[WhatsApp] Skipping msg without ID'); continue; }
+        if (processedWhatsappMsgIds.has(msgId)) continue;
+        console.log(`[WhatsApp] New msg ID: ${msgId}, direction: ${msg.kapso?.direction}, total processed: ${processedWhatsappMsgIds.size}`);
+
+        // Handle audio messages — use Kapso's built-in transcript
+        if (msg.type === 'audio') {
+          const transcript = msg.kapso?.transcript?.text;
+          if (transcript) {
+            processedWhatsappMsgIds.add(msgId);
+            if (processedWhatsappMsgIds.size > 500) {
+              const first = processedWhatsappMsgIds.values().next().value;
+              processedWhatsappMsgIds.delete(first);
+            }
+            console.log(`[WhatsApp] Audio transcribed by Kapso: ${transcript.slice(0, 80)}`);
+            const payload = JSON.stringify({ type: 'whatsapp:message', from: msg.from || msg.sender, text: transcript, messageId: msgId });
+            wss.clients.forEach(ws => { if (ws.readyState === ws.OPEN) ws.send(payload); });
+            await handleWhatsAppInput(transcript);
+            break;
+          }
+          continue;
+        }
 
         const rawText = msg.text;
         const body = (typeof rawText === 'string' ? rawText : (rawText && rawText.body) || msg.body || '').trim();
@@ -2822,7 +2953,7 @@ function registerWhatsAppResponseListener(sessionId) {
             if (block.type === 'text' && block.text) {
               responseBuffer += block.text;
               clearTimeout(flushTimer);
-              flushTimer = setTimeout(() => flushWhatsAppResponse(), 800);
+              flushTimer = setTimeout(() => flushWhatsAppResponse(), 1200);
             }
           }
         }

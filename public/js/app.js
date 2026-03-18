@@ -1580,6 +1580,7 @@ function WhatsAppCard() {
   const [status, setStatus] = useState(null);
   const [step, setStep] = useState('idle'); // idle | phone-input | setting-up | activation | linked
   const [phoneInput, setPhoneInput] = useState('');
+  const [apiKeyInput, setApiKeyInput] = useState('');
   const [activationCode, setActivationCode] = useState(null);
   const [sandboxNumber, setSandboxNumber] = useState('+56920403095');
   const [setupMsg, setSetupMsg] = useState('');
@@ -1643,18 +1644,24 @@ function WhatsAppCard() {
       showToast('Numero invalido. Use formato internacional: +5561999999999', 'error');
       return;
     }
+    if (!apiKeyInput || apiKeyInput.length < 20) {
+      showToast('API Key invalida. Cole a key do Kapso.', 'error');
+      return;
+    }
 
     setStep('setting-up');
-    setSetupMsg('Iniciando configuracao automatica...');
+    setSetupMsg('Conectando...');
 
     try {
-      await API.setupWhatsApp(phone);
-      // Response is immediate, real result comes via WebSocket
+      const result = await API.connectWhatsApp(apiKeyInput.trim(), phone);
+      setStatus({ linked: true, phoneNumber: phone.replace('+', '') });
+      setStep('idle');
+      showToast('WhatsApp conectado!');
     } catch (err) {
       setStep('idle');
       showToast('Erro: ' + err.message, 'error');
     }
-  }, [phoneInput]);
+  }, [phoneInput, apiKeyInput]);
 
   const handleActivationDone = useCallback(async () => {
     // Start polling to check if activation was successful
@@ -1750,7 +1757,17 @@ function WhatsAppCard() {
       ${step === 'phone-input' ? html`
         <div style="margin-top:12px; padding:12px; background:var(--surface-hover); border-radius:8px">
           <p style="margin:0 0 8px; font-size:13px; color:var(--text-secondary)">
-            Digite seu numero de WhatsApp (formato internacional):
+            Kapso API Key:
+          </p>
+          <input
+            type="text"
+            value=${apiKeyInput}
+            onInput=${(e) => setApiKeyInput(e.target.value)}
+            placeholder="Cole sua API key do Kapso aqui"
+            style="width:100%; padding:8px 12px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text-primary); font-size:13px; font-family:monospace; margin-bottom:8px"
+          />
+          <p style="margin:0 0 8px; font-size:13px; color:var(--text-secondary)">
+            Numero cadastrado no Sandbox:
           </p>
           <div style="display:flex; gap:8px; align-items:center">
             <input
@@ -1761,7 +1778,7 @@ function WhatsAppCard() {
               style="flex:1; padding:8px 12px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text-primary); font-size:15px; font-family:monospace"
               onKeyDown=${(e) => e.key === 'Enter' && handleSubmitPhone()}
             />
-            <button class="btn btn-sm btn-primary" onClick=${handleSubmitPhone}>Vincular</button>
+            <button class="btn btn-sm btn-primary" onClick=${handleSubmitPhone}>Conectar</button>
             <button class="btn btn-sm" onClick=${() => setStep('idle')} style="opacity:0.7">Cancelar</button>
           </div>
         </div>

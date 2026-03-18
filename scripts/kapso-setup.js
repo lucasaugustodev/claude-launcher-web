@@ -94,6 +94,44 @@ function extractConfirmationLink(emailContent) {
   return null;
 }
 
+// ─── Helper: dismiss any blocking modal ───
+
+async function dismissModals(page) {
+  let dismissed = false;
+  try {
+    // "Name your project" modal — click "Save name" to permanently dismiss it
+    const saveNameBtn = page.locator('button').filter({ hasText: /save name/i }).first();
+    if (await saveNameBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      // Fill a name first if input is empty
+      const nameInput = page.locator('input[type="text"], input[placeholder*="Acme"]').first();
+      if (await nameInput.isVisible({ timeout: 500 }).catch(() => false)) {
+        await nameInput.clear();
+        await nameInput.fill('HiveClip');
+      }
+      await saveNameBtn.click();
+      await page.waitForTimeout(1500);
+      console.log('[Modal] Saved project name to dismiss permanently');
+      dismissed = true;
+    }
+
+    // Check if any dialog still remains
+    const hasDialog = await page.locator('[role="dialog"], [data-state="open"]').first().isVisible({ timeout: 1000 }).catch(() => false);
+    if (hasDialog) {
+      // Try X button
+      const closeX = page.locator('[role="dialog"] button:has(svg)').first();
+      if (await closeX.isVisible({ timeout: 500 }).catch(() => false)) {
+        await closeX.click();
+        await page.waitForTimeout(500);
+        console.log('[Modal] Closed via X button');
+        dismissed = true;
+      }
+    }
+  } catch (e) {
+    console.log(`[Modal] Error: ${e.message}`);
+  }
+  return dismissed;
+}
+
 // ─── Main automation ───
 
 async function run(phoneNumber) {
@@ -231,12 +269,7 @@ async function run(phoneNumber) {
     }
 
     // Close "Name your project" modal if present
-    const laterBtn = page.locator('button').filter({ hasText: /later/i }).first();
-    if (await laterBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await laterBtn.click();
-      await page.waitForTimeout(1000);
-      console.log('[Dashboard] Closed project naming modal');
-    }
+    await dismissModals(page);
 
     // Extract project ID from URL for building correct URLs
     const dashUrl = page.url();
@@ -259,6 +292,9 @@ async function run(phoneNumber) {
 
     await page.screenshot({ path: 'kapso-step08-phone-numbers.png' });
 
+    // Dismiss any modal that appeared during navigation
+    await dismissModals(page);
+
     // Look for "Sandbox testing" submenu item
     const sandboxLink = page.locator('a').filter({ hasText: /sandbox/i }).first();
     if (await sandboxLink.isVisible({ timeout: 5000 }).catch(() => false)) {
@@ -278,12 +314,21 @@ async function run(phoneNumber) {
     await page.screenshot({ path: 'kapso-step09-sandbox-page.png' });
     console.log(`[Nav] Sandbox URL: ${page.url()}`);
 
+    // Dismiss modal IMMEDIATELY after arriving at sandbox page
+    await dismissModals(page);
+    await page.waitForTimeout(1000);
+    // Try again in case it appeared with delay
+    await dismissModals(page);
+
     // Dump page content
     const sandboxText = await page.textContent('body').catch(() => '');
     console.log(`[Sandbox] Page preview: ${sandboxText.replace(/\s+/g, ' ').slice(0, 500)}`);
 
     // Step 6: Start new sandbox session
     console.log('\n=== Step 6: Start sandbox session ===');
+
+    // Dismiss any modal blocking the page (one more time)
+    await dismissModals(page);
 
     // Check if this phone already has a session (shown in the table)
     const existingPhone = page.locator('td, tr').filter({ hasText: phone.replace('+', '') }).first();
