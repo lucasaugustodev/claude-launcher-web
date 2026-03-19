@@ -803,4 +803,8 @@ const API = {
   advanceWorkflow(id, note) { return this.fetch(`api/workflows/${id}/advance`, { method: 'POST', body: JSON.stringify({ note }) }); },
   addWorkflowArtifact(id, artifact) { return this.fetch(`api/workflows/${id}/artifacts`, { method: 'POST', body: JSON.stringify(artifact) }); },
   launchWorkflowAgent(id, agentOverride) { return this.fetch(`api/workflows/${id}/launch`, { method: 'POST', body: JSON.stringify({ agentOverride }) }); },
+
+  // ─── Version ───
+
+  checkVersion() { return this.fetch('api/version-check'); },
 };

@@ -2045,6 +2045,23 @@ function App() {
       updateActiveCount();
       const interval = setInterval(updateActiveCount, 10000);
 
+      // Version check
+      const checkForUpdates = async () => {
+        try {
+          const result = await API.checkVersion();
+          if (result.updateAvailable && result.remoteVersion) {
+            const dismissed = localStorage.getItem('cl_dismissed_update_version');
+            if (dismissed !== result.remoteVersion) {
+              showUpdateBanner(result.localVersion, result.remoteVersion);
+            }
+          } else {
+            hideUpdateBanner();
+          }
+        } catch (e) { /* silent */ }
+      };
+      checkForUpdates();
+      const versionInterval = setInterval(checkForUpdates, 30 * 60 * 1000);
+
       // First time entering app from onboarding: auto-install marketplace + open chat
       if (cameFromOnboarding.current) {
         cameFromOnboarding.current = false;
@@ -2052,7 +2069,7 @@ function App() {
         setTimeout(() => { if (window.FloatingChat) window.FloatingChat.open(); }, 1500);
       }
 
-      return () => clearInterval(interval);
+      return () => { clearInterval(interval); clearInterval(versionInterval); };
     } else {
       document.getElementById('sidebar').style.display = 'none';
       // Hide floating chat during onboarding

@@ -53,6 +53,49 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// ─── Version Check ───
+let _versionCache = { remoteVersion: null, checkedAt: 0 };
+const VERSION_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+app.get('/api/version-check', async (req, res) => {
+  const localVersion = require('./package.json').version;
+  const now = Date.now();
+
+  if (_versionCache.remoteVersion && (now - _versionCache.checkedAt) < VERSION_CACHE_TTL) {
+    return res.json({
+      localVersion,
+      remoteVersion: _versionCache.remoteVersion,
+      updateAvailable: _versionCache.remoteVersion !== localVersion,
+    });
+  }
+
+  try {
+    const https = require('https');
+    const data = await new Promise((resolve, reject) => {
+      https.get({
+        hostname: 'api.github.com',
+        path: '/repos/lucasaugustodev/claude-launcher-web/contents/package.json?ref=main',
+        headers: { 'User-Agent': 'claude-launcher-web', 'Accept': 'application/vnd.github.v3+json' },
+      }, (resp) => {
+        let body = '';
+        resp.on('data', chunk => body += chunk);
+        resp.on('end', () => {
+          if (resp.statusCode !== 200) return reject(new Error(`GitHub API ${resp.statusCode}`));
+          resolve(JSON.parse(body));
+        });
+      }).on('error', reject);
+    });
+
+    const content = JSON.parse(Buffer.from(data.content, 'base64').toString('utf8'));
+    const remoteVersion = content.version;
+    _versionCache = { remoteVersion, checkedAt: now };
+
+    res.json({ localVersion, remoteVersion, updateAvailable: remoteVersion !== localVersion });
+  } catch (err) {
+    res.json({ localVersion, remoteVersion: null, updateAvailable: false, error: err.message });
+  }
+});
+
 // Onboarding status (replaces auth status)
 // If Claude Code is not authenticated, force onboarding even if it was completed before
 app.get('/api/auth/status', async (req, res) => {

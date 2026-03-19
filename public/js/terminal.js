@@ -217,6 +217,24 @@ const TerminalManager = {
 
     this._term.open(container);
 
+    // Scale terminal to fill the container width while preserving ANSI grid
+    const scaleTerminal = () => {
+      const xtermScreen = container.querySelector('.xterm-screen');
+      if (!xtermScreen || !this._term) return;
+      // Reset transform to measure natural width
+      const xtermEl = container.querySelector('.xterm');
+      if (xtermEl) xtermEl.style.transform = '';
+      const containerWidth = container.clientWidth - 8;
+      const termWidth = xtermScreen.offsetWidth;
+      if (termWidth > 0 && containerWidth > termWidth) {
+        const scale = containerWidth / termWidth;
+        if (xtermEl) {
+          xtermEl.style.transformOrigin = 'top left';
+          xtermEl.style.transform = `scale(${scale})`;
+        }
+      }
+    };
+
     // Write the saved output in chunks so xterm.js can process ANSI sequences properly
     if (output) {
       const CHUNK = 4096;
@@ -228,18 +246,26 @@ const TerminalManager = {
         offset = end;
         if (offset < output.length) {
           setTimeout(writeChunk, 5);
+        } else {
+          setTimeout(scaleTerminal, 50);
         }
       };
       writeChunk();
     } else {
       this._term.write('\x1b[33m[Nenhum output salvo para esta sessao]\x1b[0m\r\n');
+      setTimeout(scaleTerminal, 50);
     }
 
-    this._resizeHandler = null;
+    // Re-scale on window resize
+    this._resizeHandler = () => scaleTerminal();
+    window.addEventListener('resize', this._resizeHandler);
 
     document.getElementById('terminal-title').textContent = title;
     document.getElementById('terminal-stop').style.display = 'none';
     document.getElementById('terminal-overlay').style.display = 'flex';
+
+    // Initial scale after overlay is visible
+    setTimeout(scaleTerminal, 100);
   },
 
   get currentSessionId() {

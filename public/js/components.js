@@ -30,6 +30,33 @@ function showToast(message, type = 'success') {
   setTimeout(() => toast.remove(), 3000);
 }
 
+function showUpdateBanner(localVersion, remoteVersion) {
+  if (document.getElementById('update-banner')) return;
+
+  const banner = el('div', { id: 'update-banner', className: 'update-banner' });
+  banner.innerHTML = `
+    <span class="update-banner-icon">&#9888;</span>
+    <span class="update-banner-text">
+      Nova versao disponivel: <strong>v${remoteVersion}</strong> (atual: v${localVersion})
+    </span>
+    <a href="https://github.com/lucasaugustodev/claude-launcher-web" target="_blank" rel="noopener" class="update-banner-link">Ver no GitHub</a>
+    <button class="update-banner-dismiss" title="Fechar">&times;</button>
+  `;
+
+  banner.querySelector('.update-banner-dismiss').onclick = () => {
+    banner.remove();
+    localStorage.setItem('cl_dismissed_update_version', remoteVersion);
+  };
+
+  const content = document.getElementById('content');
+  if (content) content.prepend(banner);
+}
+
+function hideUpdateBanner() {
+  const banner = document.getElementById('update-banner');
+  if (banner) banner.remove();
+}
+
 // ─── Profile Form Modal ───
 
 function showProfileModal(profile = null, onSave) {
