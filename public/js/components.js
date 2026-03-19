@@ -39,9 +39,13 @@ function showUpdateBanner(localVersion, remoteVersion) {
     <span class="update-banner-text">
       Nova versao disponivel: <strong>v${remoteVersion}</strong> (atual: v${localVersion})
     </span>
-    <a href="https://github.com/lucasaugustodev/claude-launcher-web" target="_blank" rel="noopener" class="update-banner-link">Ver no GitHub</a>
+    <button class="update-banner-action" title="Atualizar agora">&#x21bb; Atualizar</button>
     <button class="update-banner-dismiss" title="Fechar">&times;</button>
   `;
+
+  banner.querySelector('.update-banner-action').onclick = () => {
+    window.location.reload(true);
+  };
 
   banner.querySelector('.update-banner-dismiss').onclick = () => {
     banner.remove();

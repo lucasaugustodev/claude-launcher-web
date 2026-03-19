@@ -2052,15 +2052,21 @@ function App() {
           const versionEl = document.getElementById('app-version');
           if (!versionEl) return;
           if (result.updateAvailable && result.remoteVersion) {
-            versionEl.textContent = 'v' + result.localVersion + ' → v' + result.remoteVersion;
+            versionEl.innerHTML = '&#x21bb; v' + result.localVersion;
             versionEl.className = 'version-tag outdated';
-            versionEl.title = 'Clique para atualizar para v' + result.remoteVersion;
+            versionEl.title = 'Atualizar para v' + result.remoteVersion + ' (clique para reiniciar)';
             versionEl.onclick = () => window.location.reload(true);
+            // Show banner popup
+            const dismissed = localStorage.getItem('cl_dismissed_update_version');
+            if (dismissed !== result.remoteVersion) {
+              showUpdateBanner(result.localVersion, result.remoteVersion);
+            }
           } else if (result.localVersion) {
             versionEl.textContent = 'v' + result.localVersion;
             versionEl.className = 'version-tag';
             versionEl.title = 'Versao atualizada';
             versionEl.onclick = null;
+            hideUpdateBanner();
           }
         } catch (e) { /* silent */ }
       };
