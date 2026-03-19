@@ -176,9 +176,6 @@ const TerminalManager = {
   openReadOnly(title, output, { cols, rows } = {}) {
     this._currentSessionId = null;
 
-    const replayCols = cols || 120;
-    const replayRows = rows || 30;
-
     const container = document.getElementById('terminal-container');
     container.innerHTML = '';
 
@@ -207,33 +204,16 @@ const TerminalManager = {
       },
       fontFamily: '"Cascadia Code", "Fira Code", Consolas, monospace',
       fontSize: 14,
-      cols: replayCols,
-      rows: replayRows,
       cursorBlink: false,
       disableStdin: true,
       allowProposedApi: true,
       scrollback: 10000,
     });
 
-    this._term.open(container);
+    this._fitAddon = new FitAddon.FitAddon();
+    this._term.loadAddon(this._fitAddon);
 
-    // Scale terminal to fill the container width while preserving ANSI grid
-    const scaleTerminal = () => {
-      const xtermScreen = container.querySelector('.xterm-screen');
-      if (!xtermScreen || !this._term) return;
-      // Reset transform to measure natural width
-      const xtermEl = container.querySelector('.xterm');
-      if (xtermEl) xtermEl.style.transform = '';
-      const containerWidth = container.clientWidth - 8;
-      const termWidth = xtermScreen.offsetWidth;
-      if (termWidth > 0 && containerWidth > termWidth) {
-        const scale = containerWidth / termWidth;
-        if (xtermEl) {
-          xtermEl.style.transformOrigin = 'top left';
-          xtermEl.style.transform = `scale(${scale})`;
-        }
-      }
-    };
+    this._term.open(container);
 
     // Write the saved output in chunks so xterm.js can process ANSI sequences properly
     if (output) {
@@ -246,26 +226,22 @@ const TerminalManager = {
         offset = end;
         if (offset < output.length) {
           setTimeout(writeChunk, 5);
-        } else {
-          setTimeout(scaleTerminal, 50);
         }
       };
       writeChunk();
     } else {
       this._term.write('\x1b[33m[Nenhum output salvo para esta sessao]\x1b[0m\r\n');
-      setTimeout(scaleTerminal, 50);
     }
 
-    // Re-scale on window resize
-    this._resizeHandler = () => scaleTerminal();
+    // Fit to container (same as active terminal)
+    setTimeout(() => { if (this._fitAddon) this._fitAddon.fit(); }, 100);
+
+    this._resizeHandler = () => { if (this._fitAddon) this._fitAddon.fit(); };
     window.addEventListener('resize', this._resizeHandler);
 
     document.getElementById('terminal-title').textContent = title;
     document.getElementById('terminal-stop').style.display = 'none';
     document.getElementById('terminal-overlay').style.display = 'flex';
-
-    // Initial scale after overlay is visible
-    setTimeout(scaleTerminal, 100);
   },
 
   get currentSessionId() {

@@ -2049,13 +2049,18 @@ function App() {
       const checkForUpdates = async () => {
         try {
           const result = await API.checkVersion();
+          const versionEl = document.getElementById('app-version');
+          if (!versionEl) return;
           if (result.updateAvailable && result.remoteVersion) {
-            const dismissed = localStorage.getItem('cl_dismissed_update_version');
-            if (dismissed !== result.remoteVersion) {
-              showUpdateBanner(result.localVersion, result.remoteVersion);
-            }
-          } else {
-            hideUpdateBanner();
+            versionEl.textContent = 'v' + result.localVersion + ' → v' + result.remoteVersion;
+            versionEl.className = 'version-tag outdated';
+            versionEl.title = 'Clique para atualizar para v' + result.remoteVersion;
+            versionEl.onclick = () => window.location.reload(true);
+          } else if (result.localVersion) {
+            versionEl.textContent = 'v' + result.localVersion;
+            versionEl.className = 'version-tag';
+            versionEl.title = 'Versao atualizada';
+            versionEl.onclick = null;
           }
         } catch (e) { /* silent */ }
       };
