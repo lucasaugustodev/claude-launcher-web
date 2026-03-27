@@ -1235,7 +1235,9 @@ function spawnInteractive(command, args = [], cwd) {
   // On Linux/Mac, spawn via bash to ensure PATH resolution works correctly
   let shellAndArgs;
   if (process.platform === 'win32') {
-    shellAndArgs = { shell: 'cmd.exe', args: ['/c', command, ...args] };
+    // Use COMSPEC (full path to cmd.exe) to avoid PATH resolution issues in restricted server environments
+    const cmdExe = process.env.COMSPEC || 'C:\\Windows\\System32\\cmd.exe';
+    shellAndArgs = { shell: cmdExe, args: ['/c', command, ...args] };
   } else {
     const bashCmd = args.length > 0 ? `${command} ${args.join(' ')}` : command;
     shellAndArgs = { shell: '/bin/bash', args: ['-c', bashCmd] };
