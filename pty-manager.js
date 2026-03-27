@@ -1232,11 +1232,13 @@ function spawnInteractive(command, args = [], cwd) {
   const sessionId = uuid();
   const env = { ...process.env, TERM: 'xterm-256color', FORCE_COLOR: '1' };
   // On Windows, node-pty can't spawn .cmd/.bat files directly - use cmd.exe /c
+  // On Linux/Mac, spawn via bash to ensure PATH resolution works correctly
   let shellAndArgs;
   if (process.platform === 'win32') {
     shellAndArgs = { shell: 'cmd.exe', args: ['/c', command, ...args] };
   } else {
-    shellAndArgs = { shell: command, args };
+    const bashCmd = args.length > 0 ? `${command} ${args.join(' ')}` : command;
+    shellAndArgs = { shell: '/bin/bash', args: ['-c', bashCmd] };
   }
   const handle = spawnSession(sessionId, shellAndArgs, cwd || process.cwd(), env);
   return { id: sessionId, pid: handle.pid };
