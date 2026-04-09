@@ -280,9 +280,13 @@ function HistoryPage() {
                           ${s.status !== 'running' ? html`
                             <button class="btn btn-success btn-sm" onClick=${async () => {
                               try {
-                                const ns = await API.resumeSession(s.id, { streamJson: false });
+                                const [ns, outputData] = await Promise.all([
+                                  API.resumeSession(s.id, { streamJson: false }),
+                                  API.getSessionOutputData(s.id).catch(() => null),
+                                ]);
                                 showToast('Sessao retomada!');
-                                TerminalManager.open(ns.id);
+                                const prevOutput = outputData && outputData.output ? outputData.output : '';
+                                TerminalManager.openWithHistory(ns.id, prevOutput);
                                 document.getElementById('terminal-title').textContent = sessionDisplayName(ns, 50);
                                 updateActiveCount();
                               } catch (err) { showToast(err.message, 'error'); }

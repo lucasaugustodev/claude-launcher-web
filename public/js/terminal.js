@@ -244,6 +244,116 @@ const TerminalManager = {
     document.getElementById('terminal-overlay').style.display = 'flex';
   },
 
+  // Open a live terminal that first replays previous session output, then connects to new PTY
+  openWithHistory(sessionId, previousOutput) {
+    this._currentSessionId = sessionId;
+
+    const container = document.getElementById('terminal-container');
+    container.innerHTML = '';
+
+    this._term = new Terminal({
+      theme: {
+        background: '#1e1e2e',
+        foreground: '#cdd6f4',
+        cursor: '#f5e0dc',
+        selectionBackground: '#45475a',
+        black: '#45475a',
+        red: '#f38ba8',
+        green: '#a6e3a1',
+        yellow: '#f9e2af',
+        blue: '#89b4fa',
+        magenta: '#cba6f7',
+        cyan: '#94e2d5',
+        white: '#bac2de',
+        brightBlack: '#585b70',
+        brightRed: '#f38ba8',
+        brightGreen: '#a6e3a1',
+        brightYellow: '#f9e2af',
+        brightBlue: '#89b4fa',
+        brightMagenta: '#cba6f7',
+        brightCyan: '#94e2d5',
+        brightWhite: '#a6adc8',
+      },
+      fontFamily: '"Cascadia Code", "Fira Code", Consolas, monospace',
+      fontSize: 14,
+      cursorBlink: true,
+      allowProposedApi: true,
+      scrollback: 10000,
+    });
+
+    this._fitAddon = new FitAddon.FitAddon();
+    this._term.loadAddon(this._fitAddon);
+    this._term.open(container);
+
+    // Replay previous output first
+    if (previousOutput) {
+      this._term.write(previousOutput);
+      this._term.write('\r\n\x1b[36m── sessao retomada ──\x1b[0m\r\n\r\n');
+    }
+
+    // Fit after replay
+    setTimeout(() => {
+      if (this._fitAddon) {
+        this._fitAddon.fit();
+        API.resizeTerminal(sessionId, this._term.cols, this._term.rows);
+      }
+    }, 100);
+
+    // Intercept Ctrl+C / Ctrl+V (same as open)
+    this._term.attachCustomKeyEventHandler((e) => {
+      if (e.type === 'keydown' && e.ctrlKey && e.key === 'c') {
+        const selection = this._term.getSelection();
+        if (selection) {
+          navigator.clipboard.writeText(selection).catch(() => {});
+          this._term.clearSelection();
+          return false;
+        }
+      }
+      if (e.type === 'keydown' && e.ctrlKey && e.key === 'v') {
+        navigator.clipboard.readText().then(text => {
+          if (text) API.sendInput(sessionId, text);
+        }).catch(() => {});
+        return false;
+      }
+      return true;
+    });
+
+    // Handle user input -> send to PTY
+    this._term.onData((data) => {
+      API.sendInput(sessionId, data);
+    });
+
+    // Handle terminal output from WebSocket
+    this._outputHandler = (msg) => {
+      if (msg.sessionId === sessionId && this._term) {
+        this._term.write(msg.data);
+      }
+    };
+
+    this._exitHandler = (msg) => {
+      if (msg.sessionId === sessionId && this._term) {
+        this._term.write('\r\n\x1b[33m[Sessao finalizada com codigo ' + msg.exitCode + ']\x1b[0m\r\n');
+      }
+    };
+
+    API.on('terminal:output', this._outputHandler);
+    API.on('terminal:exit', this._exitHandler);
+
+    API.attachSession(sessionId);
+
+    this._resizeHandler = () => {
+      if (this._fitAddon) {
+        this._fitAddon.fit();
+        API.resizeTerminal(sessionId, this._term.cols, this._term.rows);
+      }
+    };
+    window.addEventListener('resize', this._resizeHandler);
+
+    this._addChatToggle(sessionId);
+
+    document.getElementById('terminal-overlay').style.display = 'flex';
+  },
+
   get currentSessionId() {
     return this._currentSessionId;
   },
