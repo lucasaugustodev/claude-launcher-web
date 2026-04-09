@@ -127,6 +127,10 @@ const API = {
     return this.fetch(`api/sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ customName }) });
   },
 
+  deleteSession(id) {
+    return this.fetch(`api/sessions/${id}`, { method: 'DELETE' });
+  },
+
   clearHistory() {
     return this.fetch('api/sessions/history', { method: 'DELETE' });
   },

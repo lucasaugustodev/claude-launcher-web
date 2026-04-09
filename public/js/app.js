@@ -274,9 +274,6 @@ function HistoryPage() {
                               );
                             } catch (err) { showToast(err.message, 'error'); }
                           }}>Output</button>
-                          <button class="btn btn-sm" onClick=${() => {
-                            showRenameModal(s.id, s.customName || s.firstPrompt || '', load);
-                          }}>Renomear</button>
                           ${s.status !== 'running' ? html`
                             <button class="btn btn-success btn-sm" onClick=${async () => {
                               try {
@@ -293,6 +290,16 @@ function HistoryPage() {
                                 updateActiveCount();
                               } catch (err) { showToast(err.message, 'error'); }
                             }}>Retomar</button>
+                          ` : null}
+                          ${s.status !== 'running' ? html`
+                            <button class="btn btn-danger btn-sm" title="Excluir" onClick=${async () => {
+                              if (!confirm('Excluir esta sessao do historico?')) return;
+                              try {
+                                await API.deleteSession(s.id);
+                                showToast('Sessao excluida');
+                                load();
+                              } catch (err) { showToast(err.message, 'error'); }
+                            }}>\u{1F5D1}</button>
                           ` : null}
                         </td>
                       </tr>

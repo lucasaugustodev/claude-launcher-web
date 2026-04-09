@@ -1277,6 +1277,14 @@ app.patch('/api/sessions/:id', (req, res) => {
   res.json({ ok: true, customName: trimmed });
 });
 
+app.delete('/api/sessions/:id', (req, res) => {
+  storage.deleteSession(req.params.id);
+  // Also remove output file
+  const outputFile = path.join(__dirname, 'data', 'outputs', `${req.params.id}.raw`);
+  try { fs.unlinkSync(outputFile); } catch {}
+  res.json({ ok: true });
+});
+
 app.delete('/api/sessions/history', (req, res) => {
   storage.clearHistory();
   res.json({ ok: true });
