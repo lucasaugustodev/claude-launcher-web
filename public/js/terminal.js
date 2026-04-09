@@ -285,10 +285,24 @@ const TerminalManager = {
     this._term.loadAddon(this._fitAddon);
     this._term.open(container);
 
-    // Replay previous output first
-    if (previousOutput) {
-      this._term.write(previousOutput);
-      this._term.write('\r\n\x1b[36m── sessao retomada ──\x1b[0m\r\n\r\n');
+    // Replay previous output in chunks (same approach as openReadOnly)
+    const self = this;
+    if (previousOutput && previousOutput.length > 0) {
+      const CHUNK = 4096;
+      let offset = 0;
+      const writeChunk = () => {
+        if (offset >= previousOutput.length || !self._term) return;
+        const end = Math.min(offset + CHUNK, previousOutput.length);
+        self._term.write(previousOutput.slice(offset, end));
+        offset = end;
+        if (offset < previousOutput.length) {
+          setTimeout(writeChunk, 5);
+        } else {
+          // Separator after all output is written
+          self._term.write('\r\n\x1b[36m── sessao retomada ──\x1b[0m\r\n\r\n');
+        }
+      };
+      writeChunk();
     }
 
     // Fit after replay
