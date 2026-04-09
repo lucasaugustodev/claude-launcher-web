@@ -41,6 +41,12 @@ const ONBOARDING_FILE = path.join(__dirname, '.onboarding-done');
 function checkToken(req, res, next) { next(); }
 
 app.use(express.json({ limit: '5mb' }));
+app.use((req, res, next) => {
+  if (req.path.match(/\.(js|css|html)$/)) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  }
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── API ───
