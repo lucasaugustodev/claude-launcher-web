@@ -88,6 +88,11 @@ function updateSession(id, updates) {
   return sessions[idx];
 }
 
+function deleteSession(id) {
+  const sessions = getSessions().filter(s => s.id !== id);
+  saveSessions(sessions);
+}
+
 function clearHistory() {
   const sessions = getSessions().filter(s => s.status === 'running');
   saveSessions(sessions);
@@ -388,7 +393,7 @@ function deleteWorkflow(id) {
 
 module.exports = {
   getProfiles, saveProfiles, getProfile, addProfile, updateProfile, deleteProfile,
-  getSessions, saveSessions, getSession, addSession, updateSession, clearHistory,
+  getSessions, saveSessions, getSession, addSession, updateSession, deleteSession, clearHistory,
   getClineSessions, saveClineSessions, getClineSession, addClineSession, updateClineSession, clearClineHistory,
   getGeminiSessions, saveGeminiSessions, getGeminiSession, addGeminiSession, updateGeminiSession, clearGeminiHistory,
   getGwsSessions, saveGwsSessions, getGwsSession, addGwsSession, updateGwsSession, clearGwsHistory,
