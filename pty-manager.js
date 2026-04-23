@@ -33,6 +33,34 @@ function forwardToMissionControl(sessionId, eventType, data) {
   }).catch(err => console.log(`[MC-HOOK] Error: ${err.message}`));
 }
 
+// Ensure Claude Code's global config exists with onboarding completed
+// Prevents the welcome/theme selection screen from appearing on fresh VMs
+function ensureClaudeOnboarded() {
+  try {
+    const claudeJsonPath = path.join(os.homedir(), '.claude.json');
+    let data = {};
+    if (fs.existsSync(claudeJsonPath)) {
+      data = JSON.parse(fs.readFileSync(claudeJsonPath, 'utf8'));
+    }
+    let changed = false;
+    if (!data.hasCompletedOnboarding) {
+      data.hasCompletedOnboarding = true;
+      changed = true;
+    }
+    if (!data.numStartups || data.numStartups < 2) {
+      data.numStartups = 2;
+      changed = true;
+    }
+    if (changed) {
+      if (!data.projects) data.projects = {};
+      fs.writeFileSync(claudeJsonPath, JSON.stringify(data, null, 2));
+      console.log('[ONBOARD] Pre-seeded Claude Code onboarding config');
+    }
+  } catch (err) {
+    console.error(`[ONBOARD] Failed to pre-seed Claude config: ${err.message}`);
+  }
+}
+
 // Ensure workspace is trusted in .claude.json before launching
 function ensureWorkspaceTrusted(cwd) {
   try {
@@ -683,6 +711,14 @@ function resumeSession(sessionId, { streamJson } = {}) {
   const oldSession = storage.getSession(sessionId);
   if (!oldSession) throw new Error('Session not found');
 
+  // Mark the old session as stopped so it leaves the Ativas tab
+  if (oldSession.status === 'disconnected' || oldSession.status === 'running') {
+    storage.updateSession(sessionId, {
+      status: 'stopped',
+      endedAt: oldSession.endedAt || new Date().toISOString(),
+    });
+  }
+
   const profile = storage.getProfile(oldSession.profileId);
   const mode = oldSession.mode || (profile ? profile.mode : 'normal');
   const cwd = oldSession.workingDirectory || (profile ? profile.workingDirectory : process.cwd());
@@ -737,7 +773,18 @@ function resumeSession(sessionId, { streamJson } = {}) {
 
 function stopSession(sessionId) {
   const handle = handles.get(sessionId);
-  if (!handle || handle.exited) return false;
+  if (!handle) {
+    // Orphaned session (no handle) — just mark as stopped in storage
+    const session = storage.getSession(sessionId);
+    if (!session || session.status !== 'running') return false;
+    storage.updateSession(sessionId, {
+      status: 'stopped',
+      endedAt: new Date().toISOString(),
+    });
+    _broadcast({ type: 'exit', sessionId, code: null, reason: 'stopped' });
+    return true;
+  }
+  if (handle.exited) return false;
 
   if (handle.streamJson) {
     // Stream-JSON mode: kill child process
@@ -872,6 +919,7 @@ function isStreamJson(sessionId) {
 
 function getActiveSessions() {
   const active = [];
+  // Live sessions from in-memory handles
   for (const [id, handle] of handles) {
     if (handle.exited) continue;
     const startMs = new Date(handle.startedAt).getTime();
@@ -884,6 +932,25 @@ function getActiveSessions() {
       firstPrompt: handle.firstPrompt || null,
       customName: handle.customName || null,
     });
+  }
+  // Orphaned sessions from storage (survived a server restart) — keep as running
+  const sessions = storage.getSessions();
+  for (const s of sessions) {
+    if (s.status === 'running' && !handles.has(s.id)) {
+      const startMs = new Date(s.startedAt).getTime();
+      active.push({
+        id: s.id,
+        pid: s.pid,
+        startedAt: s.startedAt,
+        elapsedSeconds: Math.round((Date.now() - startMs) / 1000),
+        streamJson: !!s.streamJson,
+        firstPrompt: s.firstPrompt || null,
+        customName: s.customName || null,
+        profileId: s.profileId,
+        profileName: s.profileName,
+        claudeSessionId: s.claudeSessionId,
+      });
+    }
   }
   return active;
 }
@@ -922,20 +989,17 @@ function stopAll() {
   return count;
 }
 
-// Cleanup orphaned sessions on startup
+// Count orphaned sessions on startup (sessions that survived a server restart)
+// They keep status 'running' so they stay in Ativas tab as-is
 function cleanupOrphaned() {
   const sessions = storage.getSessions();
-  let cleaned = 0;
+  let orphaned = 0;
   for (const s of sessions) {
     if (s.status === 'running' && !handles.has(s.id)) {
-      storage.updateSession(s.id, {
-        status: 'stopped',
-        endedAt: new Date().toISOString(),
-      });
-      cleaned++;
+      orphaned++;
     }
   }
-  return cleaned;
+  return orphaned;
 }
 
 // ─── Cline CLI Sessions ───
@@ -1005,34 +1069,28 @@ function stopClineSession(sessionId) {
 }
 
 function getActiveClineSessions() {
-  const clineSessions = storage.getClineSessions().filter(s => s.status === 'running');
   const active = [];
+  const clineSessions = storage.getClineSessions().filter(s => s.status === 'running');
   for (const s of clineSessions) {
     const handle = handles.get(s.id);
-    if (handle && !handle.exited) {
-      const startMs = new Date(handle.startedAt).getTime();
-      active.push({
-        ...s,
-        elapsedSeconds: Math.round((Date.now() - startMs) / 1000),
-      });
-    }
+    const startMs = new Date(s.startedAt || handle?.startedAt).getTime();
+    active.push({
+      ...s,
+      elapsedSeconds: Math.round((Date.now() - startMs) / 1000),
+    });
   }
   return active;
 }
 
 function cleanupOrphanedCline() {
   const sessions = storage.getClineSessions();
-  let cleaned = 0;
+  let orphaned = 0;
   for (const s of sessions) {
     if (s.status === 'running' && !handles.has(s.id)) {
-      storage.updateClineSession(s.id, {
-        status: 'stopped',
-        endedAt: new Date().toISOString(),
-      });
-      cleaned++;
+      orphaned++;
     }
   }
-  return cleaned;
+  return orphaned;
 }
 
 // ─── Gemini CLI Sessions ───
@@ -1101,34 +1159,28 @@ function stopGeminiSession(sessionId) {
 }
 
 function getActiveGeminiSessions() {
-  const geminiSessions = storage.getGeminiSessions().filter(s => s.status === 'running');
   const active = [];
+  const geminiSessions = storage.getGeminiSessions().filter(s => s.status === 'running');
   for (const s of geminiSessions) {
     const handle = handles.get(s.id);
-    if (handle && !handle.exited) {
-      const startMs = new Date(handle.startedAt).getTime();
-      active.push({
-        ...s,
-        elapsedSeconds: Math.round((Date.now() - startMs) / 1000),
-      });
-    }
+    const startMs = new Date(s.startedAt || handle?.startedAt).getTime();
+    active.push({
+      ...s,
+      elapsedSeconds: Math.round((Date.now() - startMs) / 1000),
+    });
   }
   return active;
 }
 
 function cleanupOrphanedGemini() {
   const sessions = storage.getGeminiSessions();
-  let cleaned = 0;
+  let orphaned = 0;
   for (const s of sessions) {
     if (s.status === 'running' && !handles.has(s.id)) {
-      storage.updateGeminiSession(s.id, {
-        status: 'stopped',
-        endedAt: new Date().toISOString(),
-      });
-      cleaned++;
+      orphaned++;
     }
   }
-  return cleaned;
+  return orphaned;
 }
 
 // ─── GWS Sessions ───
@@ -1197,34 +1249,28 @@ function stopGwsSession(sessionId) {
 }
 
 function getActiveGwsSessions() {
-  const gwsSessions = storage.getGwsSessions().filter(s => s.status === 'running');
   const active = [];
+  const gwsSessions = storage.getGwsSessions().filter(s => s.status === 'running');
   for (const s of gwsSessions) {
     const handle = handles.get(s.id);
-    if (handle && !handle.exited) {
-      const startMs = new Date(handle.startedAt).getTime();
-      active.push({
-        ...s,
-        elapsedSeconds: Math.round((Date.now() - startMs) / 1000),
-      });
-    }
+    const startMs = new Date(s.startedAt || handle?.startedAt).getTime();
+    active.push({
+      ...s,
+      elapsedSeconds: Math.round((Date.now() - startMs) / 1000),
+    });
   }
   return active;
 }
 
 function cleanupOrphanedGws() {
   const sessions = storage.getGwsSessions();
-  let cleaned = 0;
+  let orphaned = 0;
   for (const s of sessions) {
     if (s.status === 'running' && !handles.has(s.id)) {
-      storage.updateGwsSession(s.id, {
-        status: 'stopped',
-        endedAt: new Date().toISOString(),
-      });
-      cleaned++;
+      orphaned++;
     }
   }
-  return cleaned;
+  return orphaned;
 }
 
 // Spawn an interactive command in a PTY (for gh auth login, cline auth, etc.)
@@ -1306,15 +1352,28 @@ Comece perguntando sobre a empresa.`;
   return session;
 }
 
+// Deactivate an orphaned session (move from Ativas to history)
+function deactivateSession(sessionId) {
+  const session = storage.getSession(sessionId);
+  if (!session) return false;
+  // Only allow deactivating orphaned sessions (running but no handle)
+  if (session.status !== 'running' || handles.has(sessionId)) return false;
+  storage.updateSession(sessionId, {
+    status: 'stopped',
+    endedAt: session.endedAt || new Date().toISOString(),
+  });
+  return true;
+}
+
 function setBroadcast(fn) {
   _broadcast = fn;
 }
 
 module.exports = {
-  launchSession, launchDirect, launchAgent, launchPlanningSession, resumeSession, stopSession, sendInput, resizePty,
+  launchSession, launchDirect, launchAgent, launchPlanningSession, resumeSession, stopSession, deactivateSession, sendInput, resizePty,
   sendStreamJsonInput, isStreamJson,
   getActiveSessions, getSessionOutput, getHandle: (id) => handles.get(id) || null,
-  addListener, removeListener, stopAll, cleanupOrphaned,
+  addListener, removeListener, stopAll, cleanupOrphaned, ensureClaudeOnboarded,
   setBroadcast, spawnInteractive,
   launchClineSession, stopClineSession, getActiveClineSessions, cleanupOrphanedCline,
   launchGeminiSession, stopGeminiSession, getActiveGeminiSessions, cleanupOrphanedGemini,

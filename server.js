@@ -1224,7 +1224,8 @@ app.get('/api/sessions', (req, res) => {
 });
 
 app.get('/api/sessions/history', (req, res) => {
-  res.json(storage.getSessions());
+  // Exclude running sessions (they appear in the Ativas tab)
+  res.json(storage.getSessions().filter(s => s.status !== 'running'));
 });
 
 app.post('/api/sessions/launch', async (req, res) => {
@@ -1247,6 +1248,12 @@ app.post('/api/sessions/launch', async (req, res) => {
 app.post('/api/sessions/:id/stop', (req, res) => {
   const stopped = ptyManager.stopSession(req.params.id);
   if (!stopped) return res.status(404).json({ error: 'Session not found or already stopped' });
+  res.json({ ok: true });
+});
+
+app.post('/api/sessions/:id/deactivate', (req, res) => {
+  const ok = ptyManager.deactivateSession(req.params.id);
+  if (!ok) return res.status(404).json({ error: 'Session not found or still active' });
   res.json({ ok: true });
 });
 
@@ -1551,7 +1558,8 @@ app.get('/api/cline-sessions', (req, res) => {
 });
 
 app.get('/api/cline-sessions/history', (req, res) => {
-  res.json(storage.getClineSessions());
+  // Exclude running sessions (they appear in the Ativas tab)
+  res.json(storage.getClineSessions().filter(s => s.status !== 'running'));
 });
 
 app.post('/api/cline-sessions/launch', (req, res) => {
@@ -1627,7 +1635,8 @@ app.get('/api/gemini-sessions', checkToken, (req, res) => {
 });
 
 app.get('/api/gemini-sessions/history', checkToken, (req, res) => {
-  res.json(storage.getGeminiSessions());
+  // Exclude running sessions (they appear in the Ativas tab)
+  res.json(storage.getGeminiSessions().filter(s => s.status !== 'running'));
 });
 
 app.post('/api/gemini-sessions/launch', checkToken, (req, res) => {
@@ -1703,7 +1712,8 @@ app.get('/api/gws-sessions', checkToken, (req, res) => {
 });
 
 app.get('/api/gws-sessions/history', checkToken, (req, res) => {
-  res.json(storage.getGwsSessions());
+  // Exclude running sessions (they appear in the Ativas tab)
+  res.json(storage.getGwsSessions().filter(s => s.status !== 'running'));
 });
 
 app.post('/api/gws-sessions/launch', checkToken, (req, res) => {
@@ -2192,9 +2202,12 @@ ptyManager.setBroadcast(broadcastToAll);
 
 // ─── Startup ───
 
-const cleaned = ptyManager.cleanupOrphaned();
-if (cleaned > 0) {
-  console.log(`Cleaned ${cleaned} orphaned sessions`);
+// Ensure Claude Code onboarding is pre-seeded (prevents welcome screen on fresh VMs)
+ptyManager.ensureClaudeOnboarded();
+
+const orphaned = ptyManager.cleanupOrphaned();
+if (orphaned > 0) {
+  console.log(`Found ${orphaned} orphaned sessions (kept as running)`);
 }
 
 const cleanedCline = ptyManager.cleanupOrphanedCline();
@@ -3112,19 +3125,18 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`Setup required: ${!storage.hasUsers()}`);
 });
 
-// Graceful shutdown
+// Graceful shutdown — do NOT kill sessions so they survive server restarts
+// On next boot, cleanupOrphaned() will mark them as 'disconnected' (stays in Ativas)
 process.on('SIGINT', () => {
-  console.log('\nShutting down...');
+  console.log('\nShutting down (preserving sessions)...');
   scheduler.shutdown();
-  const stopped = ptyManager.stopAll();
-  if (stopped > 0) console.log(`Stopped ${stopped} active sessions`);
   server.close();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
+  console.log('SIGTERM received (preserving sessions)...');
   scheduler.shutdown();
-  const stopped = ptyManager.stopAll();
   server.close();
   process.exit(0);
 });
